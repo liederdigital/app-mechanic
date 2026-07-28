@@ -896,7 +896,7 @@ def start_server(port=8000):
     socketserver.TCPServer.allow_reuse_address = True
     
     try:
-        with socketserver.TCPServer(("", port), handler) as httpd:
+        with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
             print(f"==========================================")
             print(f"  Dashboard Server Running on port {port}")
             print(f"  Access UI at http://localhost:{port}")
