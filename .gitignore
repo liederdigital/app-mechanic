@@ -1,15 +1,7 @@
-# Python caches
+.venv/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-
-# Local logs and environments
-.env
-.venv
-venv/
-env/
-
-# OS-specific files
+build/
+dist/
+debug.log
 .DS_Store
-Thumbs.db

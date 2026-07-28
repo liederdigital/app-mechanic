@@ -1,58 +1,40 @@
-# App Mechanic 🔧
+# App Mechanic
 
-A lightweight, zero-dependency macOS utility that scans your local `/Applications` folder, cross-references versions against the **Mac App Store** and **Homebrew Cask** databases, and displays a glassmorphic update dashboard in your browser.
+![App Mechanic Icon](icon.jpg)
 
-With a single command, see exactly what is outdated on your system, search by app name, and run real-time updates directly from the dashboard.
+App Mechanic is a sleek, zero-dependency macOS utility written in pure Python that scans your installed applications and compares their versions against Homebrew Casks and the Mac App Store to see if they need updating. 
 
----
+It serves a beautiful, glassmorphic dark-mode dashboard directly on your local machine so you can see the status of all your apps at a glance.
 
-## Features
-* **Zero Dependencies:** Written in pure Python 3 using only standard libraries. No `pip install` required!
-* **High-Fidelity UI:** A beautiful dark-mode glassmorphic interface with smooth SVG loading and progress circles.
-* **Interactive Live Refresh:** Click **Scan Now** to trigger a real-time system scan on demand.
-* **Instant Search & Filter:** Filter apps instantly by name, or view only **Outdated** / **Up to Date** apps.
-* **Smart Detection:** Compares version metadata across both Mac App Store (`mas`) and Homebrew Cask databases.
+## Prerequisites & Dependencies
+App Mechanic leverages two powerful developer tools behind the scenes to check for updates. To get accurate results, you **must** have these installed:
 
----
+1. **Homebrew**: Used to check the latest versions of standard apps (Chrome, Spotify, OBS, etc.). Install from [brew.sh](https://brew.sh).
+2. **mas (Mac App Store command-line interface)**: Used to check the latest versions of App Store apps. Install via Homebrew: `brew install mas`
 
-## How to Install and Run
+*(If you don't have these installed, App Mechanic will still run, but it will silently assume all your apps are up to date!)*
 
-### 1. Pre-requisites (Recommended)
-To enable full scanning of all package sources, make sure you have Homebrew and `mas` CLI installed:
-```bash
-# Install Homebrew (if not already installed)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+## Installation
 
-# Install mas CLI (for Mac App Store updates)
-brew install mas
-```
+Because this is a free, open-source tool compiled without an expensive Apple Developer certificate, Apple's "Gatekeeper" security system will try to block it by default. 
 
-### 2. Run the Tool
-Simply clone the repository and run the Python script:
-```bash
-python3 app_mechanic.py
-```
-This will start a lightweight local server (defaults to port `8000`) and automatically open the interactive dashboard in your default browser.
-
----
-
-## Make it a Shortcut Command (`checkapps`)
-To check your updates at any time by simply typing `checkapps` in your Terminal:
-
-1. Add the alias to your Shell profile (Zsh):
+### How to Install (The "Hacker" Way)
+1. Download the `App Mechanic.zip` file from the Releases page and extract it.
+2. Drag `App Mechanic.app` into your `/Applications` folder.
+3. Open your Terminal application and run the following command to strip Apple's quarantine flag:
    ```bash
-   echo 'alias checkapps="python3 /Users/ronstauffer/Developer/app-mechanic/app_mechanic.py"' >> ~/.zshrc
+   xattr -cr /Applications/App\ Mechanic.app
    ```
-2. Reload your terminal settings:
-   ```bash
-   source ~/.zshrc
-   ```
-3. Run it anytime:
-   ```bash
-   checkapps
-   ```
+4. You can now double-click `App Mechanic.app` to launch it safely!
 
----
+*(Alternatively, you can Right-Click the app in Finder, select "Open", and click through the security warning).*
 
-## License
-Distributed under the **MIT License**. See `LICENSE` for details.
+## How It Works
+App Mechanic behaves like a native single-instance macOS app. When you double-click it, it runs entirely in the background and automatically opens `http://localhost:8000` in your default web browser to show you the dashboard.
+
+If you close the browser tab, the background server continues to run. If you double click the `.app` again, it will simply re-open your browser to the existing dashboard instantly. To completely shut down the background scanner, just click the **Quit** button on the dashboard UI.
+
+## License & Disclaimer
+This software is provided under the **MIT License** by Lieder Digital, LLC.
+
+**WARNING:** This software comes with **ABSOLUTELY NO WARRANTIES WHATSOEVER**. Lieder Digital, LLC is not responsible if this software breaks your computer, deletes your email address and password, drains your bank account, or kidnaps your wife. Use at your own extreme risk! See the `LICENSE` file for more details.

@@ -11,6 +11,14 @@ import socket
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import socketserver
+import threading
+import ssl
+
+# Ensure Homebrew is in the PATH for bundled apps to find `mas`
+if "/opt/homebrew/bin" not in os.environ.get("PATH", ""):
+    os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
+if "/usr/local/bin" not in os.environ.get("PATH", ""):
+    os.environ["PATH"] += os.pathsep + "/usr/local/bin"
 
 # Global cache of the last scan data
 cached_scan_data = []
@@ -20,8 +28,14 @@ def fetch_brew_casks():
     print("Fetching Homebrew Cask database...")
     url = "https://formulae.brew.sh/api/cask.json"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    
+    # Use unverified context to bypass SSL certificate issues inside py2app bundles
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
         print(f"Warning: Could not fetch Homebrew Cask database: {e}")
@@ -132,8 +146,17 @@ def run_scan():
             p_late = parse_version(latest_ver)
             
             if p_inst and p_late:
+                # Pad to same length to fix format mismatches (e.g. Opera 133.0 vs 133.0.5932.60)
+                max_len = max(len(p_inst), len(p_late))
+                p_inst.extend([0] * (max_len - len(p_inst)))
+                p_late.extend([0] * (max_len - len(p_late)))
+                
                 if p_late > p_inst:
-                    status = "outdated"
+                    # Ignore pre-releases from Homebrew (e.g. OBS beta/rc) to avoid bouncing updates
+                    if any(tag in latest_raw.lower() for tag in ['beta', 'rc', 'alpha', 'pre', 'b']):
+                        status = "up_to_date"
+                    else:
+                        status = "outdated"
                 else:
                     status = "up_to_date"
             else:
@@ -605,6 +628,9 @@ def get_html_content():
                     <span class="spinner"></span>
                     <span>Scan Now</span>
                 </button>
+                <button id="btnQuit" class="btn" style="background: rgba(244, 63, 94, 0.1); border-color: rgba(244, 63, 94, 0.3); color: var(--accent-red); display: flex; align-items: center; gap: 0.5rem;" onclick="quitServer()">
+                    <span>🛑 Quit</span>
+                </button>
             </div>
         </header>
 
@@ -796,6 +822,16 @@ def get_html_content():
             });
         }
 
+        function quitServer() {
+            if (confirm("Are you sure you want to quit the App Mechanic server?")) {
+                fetch('/api/quit').then(() => {
+                    document.body.innerHTML = '<div style="display:flex; flex-direction:column; height:100vh; align-items:center; justify-content:center; text-align:center;"><h2>App Mechanic Server Stopped.</h2><p style="color: var(--text-secondary); margin-top: 1rem;">You can safely close this tab or window.</p></div>';
+                }).catch(err => {
+                    console.error('Failed to quit:', err);
+                });
+            }
+        }
+
         // Initial load of cached data
         fetch('/api/data')
             .then(res => res.json())
@@ -845,6 +881,12 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 "scan_time": last_scan_time
             }
             self.wfile.write(json.dumps(response).encode('utf-8'))
+        elif self.path == '/api/quit':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "shutting down"}).encode('utf-8'))
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
         else:
             self.send_response(404)
             self.end_headers()
@@ -853,27 +895,38 @@ def start_server(port=8000):
     handler = DashboardHTTPRequestHandler
     socketserver.TCPServer.allow_reuse_address = True
     
-    while port < 8100:
-        try:
-            with socketserver.TCPServer(("", port), handler) as httpd:
-                print(f"==========================================")
-                print(f"  Dashboard Server Running on port {port}")
-                print(f"  Access UI at http://localhost:{port}")
-                print(f"  Press Ctrl+C in this Terminal to exit.")
-                print(f"==========================================")
-                
-                webbrowser.open(f"http://localhost:{port}")
-                httpd.serve_forever()
-        except OSError as e:
-            if e.errno == 48:
-                port += 1
-            else:
-                raise e
+    try:
+        with socketserver.TCPServer(("", port), handler) as httpd:
+            print(f"==========================================")
+            print(f"  Dashboard Server Running on port {port}")
+            print(f"  Access UI at http://localhost:{port}")
+            print(f"  Press Ctrl+C in this Terminal to exit.")
+            print(f"==========================================")
+            
+            webbrowser.open(f"http://localhost:{port}")
+            httpd.serve_forever()
+    except OSError as e:
+        if e.errno == 48:
+            print(f"Port {port} is already in use. Exiting.")
+            sys.exit(0)
+        else:
+            raise e
+
+def check_single_instance(port=8000):
+    """If another instance is already running on the port, open the browser to it and exit."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # connect_ex returns 0 if connection succeeds (meaning port is actively in use by our app)
+        if s.connect_ex(('localhost', port)) == 0:
+            print(f"App Mechanic is already running on port {port}. Opening existing instance...")
+            webbrowser.open(f"http://localhost:{port}")
+            sys.exit(0)
 
 def main():
     print("==========================================")
     print("            App Mechanic                  ")
     print("==========================================")
+    
+    check_single_instance(port=8000)
     
     run_scan()
     start_server(port=8000)
