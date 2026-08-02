@@ -24,6 +24,29 @@ if "/usr/local/bin" not in os.environ.get("PATH", ""):
 cached_scan_data = []
 last_scan_time = ""
 
+HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
+HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return []
+
+def save_history(entry):
+    os.makedirs(HISTORY_DIR, exist_ok=True)
+    history = load_history()
+    history.append(entry)
+    history = history[-50:]
+    try:
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history, f)
+    except Exception as e:
+        print(f"Failed to save history: {e}")
+
 def fetch_brew_casks():
     print("Fetching Homebrew Cask database...")
     url = "https://formulae.brew.sh/api/cask.json"
@@ -180,6 +203,19 @@ def run_scan():
             
     cached_scan_data = report_data
     last_scan_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    
+    total = len(report_data)
+    outdated = sum(1 for x in report_data if x["status"] == "outdated")
+    up_to_date = total - outdated
+    pct = round((up_to_date / total) * 100, 1) if total > 0 else 0
+    
+    save_history({
+        "timestamp": last_scan_time,
+        "percentage": pct,
+        "up_to_date_count": up_to_date,
+        "outdated_count": outdated
+    })
+    
     return report_data
 
 def get_html_content():
@@ -423,6 +459,58 @@ def get_html_content():
         .icon-outdated {
             background: var(--accent-red-glow);
             color: var(--accent-red);
+        }
+
+        /* History Section */
+        .history-panel {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin-bottom: 2.5rem;
+            backdrop-filter: blur(16px);
+        }
+        .history-header {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+        .history-list {
+            max-height: 160px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        .history-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        .history-list::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 4px;
+        }
+        .history-list::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        .history-pct {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .history-up {
+            color: var(--accent-green);
         }
 
         /* Table & Controls Section */
@@ -671,6 +759,14 @@ def get_html_content():
             </div>
         </div>
 
+        <!-- History Section -->
+        <div class="history-panel">
+            <h3 class="history-header">Recent Scan History</h3>
+            <div class="history-list" id="historyList">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
         <!-- Main Section -->
         <div class="dashboard-main">
             <div class="controls">
@@ -707,9 +803,39 @@ def get_html_content():
     <script>
         let currentFilter = 'all';
         let scanData = [];
+        let scanHistory = {{HISTORY_JSON}};
 
-        function updateUI(data, scanTime) {
+        function updateHistoryUI(historyData) {
+            const container = document.getElementById('historyList');
+            container.innerHTML = '';
+            if (!historyData || historyData.length === 0) {
+                container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No history available yet. Run a scan to build history.</div>';
+                return;
+            }
+            
+            // Show latest first
+            [...historyData].reverse().forEach(entry => {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.innerHTML = `
+                    <span>${entry.timestamp}</span>
+                    <span>
+                        <span class="history-pct">${entry.percentage}%</span> up to date 
+                        (<span class="history-up">${entry.up_to_date_count}</span> updated, 
+                        <span style="color: var(--accent-red);">${entry.outdated_count}</span> pending)
+                    </span>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function updateUI(data, scanTime, historyData) {
             scanData = data;
+            if (historyData) {
+                scanHistory = historyData;
+            }
+            updateHistoryUI(scanHistory);
+            
             document.getElementById('lblScanTime').textContent = scanTime;
 
             const total = data.length;
@@ -774,7 +900,7 @@ def get_html_content():
             fetch('/api/scan')
                 .then(res => res.json())
                 .then(res => {
-                    updateUI(res.data, res.scan_time);
+                    updateUI(res.data, res.scan_time, res.history);
                 })
                 .catch(err => {
                     console.error('Scan failed:', err);
@@ -836,7 +962,7 @@ def get_html_content():
         fetch('/api/data')
             .then(res => res.json())
             .then(res => {
-                updateUI(res.data, res.scan_time);
+                updateUI(res.data, res.scan_time, res.history);
             });
     </script>
 </body>
@@ -849,6 +975,7 @@ def get_html_content():
     template = template.replace("{{TOTAL}}", str(total))
     template = template.replace("{{TIME_STR}}", str(last_scan_time))
     template = template.replace("{{STROKE_OFFSET}}", str(stroke_offset))
+    template = template.replace("{{HISTORY_JSON}}", json.dumps(load_history()))
     return template
 
 class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
@@ -868,7 +995,8 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             response = {
                 "data": cached_scan_data,
-                "scan_time": last_scan_time
+                "scan_time": last_scan_time,
+                "history": load_history()
             }
             self.wfile.write(json.dumps(response).encode('utf-8'))
         elif self.path == '/api/scan':
@@ -878,7 +1006,8 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             response = {
                 "data": new_data,
-                "scan_time": last_scan_time
+                "scan_time": last_scan_time,
+                "history": load_history()
             }
             self.wfile.write(json.dumps(response).encode('utf-8'))
         elif self.path == '/api/quit':
