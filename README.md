@@ -14,20 +14,20 @@ App Mechanic leverages two powerful developer tools behind the scenes to check f
 
 *(If you don't have these installed, App Mechanic will still run, but it will silently assume all your apps are up to date!)*
 
+## Features
+- Scans `~/Applications` and `/Applications` against Homebrew and Mac App Store versions.
+- Beautiful, animated glassmorphic dashboard in your web browser.
+- **Scan History Log:** Keeps a persistent record of your last 50 scans so you can track your progress over time.
+- Single-instance background server that is light on system resources.
+
 ## Installation
 
-Because this is a free, open-source tool compiled without an expensive Apple Developer certificate, Apple's "Gatekeeper" security system will try to block it by default. 
+As of version 0.2.0, App Mechanic is officially code-signed by Lieder Digital, LLC and Notarized by Apple to ensure it is free of malware. 
 
-### How to Install (The "Hacker" Way)
-1. Download the `App Mechanic.zip` file from the Releases page and extract it.
-2. Drag `App Mechanic.app` into your `/Applications` folder.
-3. Open your Terminal application and run the following command to strip Apple's quarantine flag:
-   ```bash
-   xattr -cr /Applications/App\ Mechanic.app
-   ```
-4. You can now double-click `App Mechanic.app` to launch it safely!
-
-*(Alternatively, you can Right-Click the app in Finder, select "Open", and click through the security warning).*
+1. Download the `AppMechanic.zip` file from the [Releases](https://github.com/liederdigital/app-mechanic/releases) page.
+2. Double-click to extract the `.zip`.
+3. Drag `App Mechanic.app` into your `/Applications` folder.
+4. Double-click it to launch!
 
 ## How It Works
 App Mechanic behaves like a native single-instance macOS app. When you double-click it, it runs entirely in the background and automatically opens `http://localhost:8000` in your default web browser to show you the dashboard.
