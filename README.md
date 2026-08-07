@@ -37,4 +37,4 @@ If you close the browser tab, the background server continues to run. If you dou
 ## License & Disclaimer
 This software is provided under the **MIT License** by Lieder Digital, LLC.
 
-**WARNING:** This software comes with **ABSOLUTELY NO WARRANTIES WHATSOEVER**. Lieder Digital, LLC is not responsible if this software breaks your computer, deletes your email address and password, drains your bank account, or kidnaps your wife. Use at your own extreme risk! See the `LICENSE` file for more details.
+**WARNING:** This software comes with **ABSOLUTELY NO WARRANTIES WHATSOEVER**. While it definitely won't break your computer or delete your emails and passwords, Lieder Digital, LLC is not responsible if it accidentally leaves the back door open and your dog runs away from home. Use at your own risk! See the `LICENSE` file for more details.
