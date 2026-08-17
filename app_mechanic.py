@@ -8,6 +8,7 @@ import subprocess
 import urllib.request
 import webbrowser
 import socket
+import platform
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import socketserver
@@ -67,23 +68,20 @@ def fetch_brew_casks():
 def get_mas_outdated():
     print("Checking Mac App Store updates...")
     try:
-        res = subprocess.run(["mas", "outdated"], capture_output=True, text=True, timeout=10)
+        res = subprocess.run(["mas", "outdated"], capture_output=True, text=True, timeout=30)
         if res.returncode == 0:
             outdated = {}
             for line in res.stdout.strip().split("\n"):
                 if not line:
                     continue
-                parts = re.split(r'\s+', line.strip(), maxsplit=2)
-                if len(parts) >= 2:
-                    app_id = parts[0]
-                    match = re.match(r'^(.*?)\s+\(([\d\.]+)\s+->\s+([\d\.]+)\)$', parts[1] + (parts[2] if len(parts) > 2 else ""))
-                    if match:
-                        name, inst_v, late_v = match.groups()
-                        outdated[name.lower()] = {
-                            "installed": inst_v,
-                            "latest": late_v,
-                            "id": app_id
-                        }
+                match = re.match(r'^(\d+)\s+(.*?)\s+\(([\d\.]+)\s+->\s+([\d\.]+)\)$', line.strip())
+                if match:
+                    app_id, name, inst_v, late_v = match.groups()
+                    outdated[name.lower()] = {
+                        "installed": inst_v,
+                        "latest": late_v,
+                        "id": app_id
+                    }
             return outdated
     except FileNotFoundError:
         print("Note: 'mas' command line tool not found. Skipping App Store CLI checks.")
@@ -97,26 +95,64 @@ def parse_version(v):
         return [int(p) for p in m.group(0).split('.')]
     return []
 
+def get_installed_casks():
+    try:
+        res = subprocess.run(["brew", "list", "--cask"], capture_output=True, text=True, timeout=10)
+        if res.returncode == 0:
+            return set(res.stdout.strip().split('\n'))
+    except Exception:
+        pass
+    return set()
+
 def run_scan():
     global cached_scan_data, last_scan_time
     print("Scanning installed applications...")
     apps_dir = "/Applications"
     casks = fetch_brew_casks()
     mas_outdated = get_mas_outdated()
+    installed_casks = get_installed_casks()
     
+    ignored_file = os.path.join(HISTORY_DIR, "ignored_releases.json")
+    ignored_releases = {}
+    if os.path.exists(ignored_file):
+        try:
+            with open(ignored_file, 'r') as f:
+                ignored_releases = json.load(f)
+        except Exception:
+            pass
+            
     app_to_latest = {}
+    
+    def is_unstable_cask(t):
+        unstable_keywords = ['beta', 'nightly', 'dev', 'alpha', 'pre', 'rc', 'edge', 'insiders', 'canary', 'ptb']
+        return any(kw in t.lower() for kw in unstable_keywords)
+
     for cask in casks:
+        token = cask.get("token", "")
         version = cask.get("version", "")
+        homepage = cask.get("homepage", "")
         artifacts = cask.get("artifacts", [])
         for art in artifacts:
             if isinstance(art, dict) and "app" in art:
                 app_list = art["app"]
+                if isinstance(app_list, str):
+                    app_list = [app_list]
+                    
                 if isinstance(app_list, list):
                     for a in app_list:
                         if isinstance(a, str):
-                            app_to_latest[a.lower()] = (cask["token"], version)
-                elif isinstance(app_list, str):
-                    app_to_latest[app_list.lower()] = (cask["token"], version)
+                            app_key = a.lower()
+                            if app_key in app_to_latest:
+                                existing_token, _, _ = app_to_latest[app_key]
+                                name_without_app = app_key.replace('.app', '')
+                                # Prioritize exact token match over partial match
+                                if token.lower() == name_without_app:
+                                    app_to_latest[app_key] = (token, version, homepage)
+                                # Prioritize stable over unstable
+                                elif is_unstable_cask(existing_token) and not is_unstable_cask(token):
+                                    app_to_latest[app_key] = (token, version, homepage)
+                            else:
+                                app_to_latest[app_key] = (token, version, homepage)
 
     report_data = []
     
@@ -139,20 +175,37 @@ def run_scan():
             except Exception:
                 pass
 
+        mas_receipt_path = os.path.join(apps_dir, item, "Contents", "_MASReceipt")
+        cask_info_check = app_to_latest.get(item.lower())
+        token_check = cask_info_check[0] if cask_info_check else None
+
+        if os.path.exists(mas_receipt_path):
+            install_method = "Mac App Store"
+        elif (token_check and token_check in installed_casks) or (name_clean.lower() in installed_casks):
+            install_method = "Homebrew"
+        else:
+            install_method = "Manual / OS"
+
         if name_clean.lower() in mas_outdated:
             mas_info = mas_outdated[name_clean.lower()]
+            status = "outdated"
+            if ignored_releases.get(name_clean) == mas_info["latest"]:
+                status = "ignored"
+            
             report_data.append({
                 "name": name_clean,
                 "installed": mas_info["installed"],
                 "latest": mas_info["latest"],
-                "status": "outdated",
-                "source": "Mac App Store"
+                "status": status,
+                "source": "Mac App Store",
+                "install_method": install_method,
+                "homepage": f"macappstore://show?app={mas_info['id']}"
             })
             continue
 
         cask_info = app_to_latest.get(item.lower())
         if cask_info:
-            token, latest_raw = cask_info
+            token, latest_raw, homepage = cask_info
             latest_ver = latest_raw.split(',')[0]
             
             if latest_ver == "latest":
@@ -161,7 +214,9 @@ def run_scan():
                     "installed": installed_ver,
                     "latest": "Latest",
                     "status": "up_to_date",
-                    "source": "System/Web"
+                    "source": "System/Web",
+                    "install_method": install_method,
+                    "homepage": homepage
                 })
                 continue
                 
@@ -175,11 +230,15 @@ def run_scan():
                 p_late.extend([0] * (max_len - len(p_late)))
                 
                 if p_late > p_inst:
-                    # Ignore pre-releases from Homebrew (e.g. OBS beta/rc) to avoid bouncing updates
-                    if any(tag in latest_raw.lower() for tag in ['beta', 'rc', 'alpha', 'pre', 'b']):
+                    auto_updaters = {'obsidian', 'discord', 'slack', 'notion', 'cursor', 'code', 'spotify', 'figma', 'whatsapp', 'opera', 'antigravity', 'descript', '4k video downloader+', 'codexbar'}
+                    if name_clean.lower() in auto_updaters:
+                        # Assume the app has auto-updated itself to the latest version
+                        installed_ver = latest_ver
                         status = "up_to_date"
                     else:
                         status = "outdated"
+                        if ignored_releases.get(name_clean) == latest_ver:
+                            status = "ignored"
                 else:
                     status = "up_to_date"
             else:
@@ -190,7 +249,9 @@ def run_scan():
                 "installed": installed_ver,
                 "latest": latest_ver,
                 "status": status,
-                "source": f"Homebrew Cask ({token})"
+                "source": f"Homebrew Cask ({token})",
+                "install_method": install_method,
+                "homepage": homepage
             })
         else:
             report_data.append({
@@ -198,7 +259,9 @@ def run_scan():
                 "installed": installed_ver,
                 "latest": installed_ver,
                 "status": "up_to_date",
-                "source": "Native / OS"
+                "source": "Native / OS",
+                "install_method": install_method,
+                "homepage": ""
             })
             
     cached_scan_data = report_data
@@ -224,6 +287,7 @@ def get_html_content():
     up_to_date = total - outdated
     pct = round((up_to_date / total) * 100, 1) if total > 0 else 0
     stroke_offset = 226 - (226 * pct / 100)
+    mac_os_version = platform.mac_ver()[0]
 
     template = """<!DOCTYPE html>
 <html lang="en">
@@ -651,11 +715,17 @@ def get_html_content():
             font-size: 0.75rem;
             font-weight: 600;
             letter-spacing: 0.02em;
+            white-space: nowrap;
         }
 
         .status-up_to_date {
             background: var(--accent-green-glow);
             color: var(--accent-green);
+        }
+
+        .status-ignored {
+            background: rgba(234, 179, 8, 0.15);
+            color: #eab308;
         }
 
         .status-outdated {
@@ -671,6 +741,34 @@ def get_html_content():
             font-size: 0.75rem;
             color: var(--text-secondary);
             font-family: monospace;
+            white-space: nowrap;
+        }
+
+        .action-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            padding: 0.35rem 0.75rem;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .action-cell {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
         }
 
         @keyframes pulse-border {
@@ -705,7 +803,7 @@ def get_html_content():
         <header>
             <div class="title-area">
                 <h1>App Mechanic</h1>
-                <p>Track updates and versions of all your applications</p>
+                <p>Track updates and versions of all your applications | macOS {{MAC_OS}}</p>
             </div>
             <div class="header-actions">
                 <div class="scan-time">
@@ -789,7 +887,9 @@ def get_html_content():
                             <th>Status</th>
                             <th>Installed Version</th>
                             <th>Latest Version</th>
-                            <th>Source</th>
+                            <th>Install Method</th>
+                            <th>Update Source</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="appsTableBody">
@@ -864,9 +964,29 @@ def get_html_content():
             tbody.innerHTML = '';
             
             data.forEach(row => {
-                const statusLabel = row.status === 'up_to_date' ? 'Up to Date' : 'Update Available';
-                const statusEmoji = row.status === 'up_to_date' ? '🟢' : '🔴';
+                let statusLabel = 'Update Available';
+                let statusEmoji = '🔴';
                 
+                if (row.status === 'up_to_date') {
+                    statusLabel = 'Up to Date';
+                    statusEmoji = '🟢';
+                } else if (row.status === 'ignored') {
+                    statusLabel = 'Ignored';
+                    statusEmoji = '🟡';
+                }
+                
+                let actionsHtml = `<div class="action-cell">`;
+                actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}')">🚀 Launch</button>`;
+                if (row.status === 'outdated') {
+                    actionsHtml += `<button class="action-btn" onclick="ignoreRelease('${row.name.replace(/'/g, "\\'")}', '${row.latest}')">🚫 Ignore</button>`;
+                }
+                actionsHtml += `</div>`;
+                
+                let appNameHtml = row.name;
+                if (row.homepage) {
+                    appNameHtml = `<a href="${row.homepage}" target="_blank" style="color: inherit; text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,0.4);">${row.name}</a>`;
+                }
+
                 const tr = document.createElement('tr');
                 tr.className = 'app-row';
                 tr.setAttribute('data-status', row.status);
@@ -874,7 +994,7 @@ def get_html_content():
                     <td>
                         <div class="app-name-cell">
                             <span>${statusEmoji}</span>
-                            ${row.name}
+                            ${appNameHtml}
                         </div>
                     </td>
                     <td>
@@ -884,12 +1004,46 @@ def get_html_content():
                     </td>
                     <td>${row.installed}</td>
                     <td>${row.latest}</td>
+                    <td><span class="source-tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2);">${row.install_method}</span></td>
                     <td><span class="source-tag">${row.source}</span></td>
+                    <td>${actionsHtml}</td>
                 `;
                 tbody.appendChild(tr);
             });
 
             filterRows();
+        }
+
+        function ignoreRelease(appName, version) {
+            if (!confirm(`Are you sure you want to ignore the ${version} release for ${appName}?`)) return;
+            
+            fetch(`/api/ignore?app=${encodeURIComponent(appName)}&version=${encodeURIComponent(version)}`)
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        triggerRefresh();
+                    } else {
+                        alert('Failed to ignore: ' + res.message);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to ignore:', err);
+                });
+        }
+
+        function launchApp(appName) {
+            fetch('/api/launch?app=' + encodeURIComponent(appName))
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status !== 'success') {
+                        console.error('Launch failed:', res.message);
+                        alert('Failed to launch ' + appName + ': ' + res.message);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to launch:', err);
+                    alert('Failed to launch ' + appName);
+                });
         }
 
         function triggerRefresh() {
@@ -976,6 +1130,7 @@ def get_html_content():
     template = template.replace("{{TIME_STR}}", str(last_scan_time))
     template = template.replace("{{STROKE_OFFSET}}", str(stroke_offset))
     template = template.replace("{{HISTORY_JSON}}", json.dumps(load_history()))
+    template = template.replace("{{MAC_OS}}", mac_os_version)
     return template
 
 class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
@@ -1016,6 +1171,56 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"status": "shutting down"}).encode('utf-8'))
             threading.Thread(target=self.server.shutdown, daemon=True).start()
+        elif self.path.startswith('/api/launch'):
+            from urllib.parse import urlparse, parse_qs
+            query_components = parse_qs(urlparse(self.path).query)
+            app_name = query_components.get('app', [''])[0]
+            if app_name:
+                try:
+                    subprocess.Popen(["open", "-a", app_name])
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Missing app parameter"}).encode('utf-8'))
+        elif self.path.startswith('/api/ignore'):
+            from urllib.parse import urlparse, parse_qs
+            query_components = parse_qs(urlparse(self.path).query)
+            app_name = query_components.get('app', [''])[0]
+            version = query_components.get('version', [''])[0]
+            if app_name and version:
+                try:
+                    ignore_file = os.path.join(HISTORY_DIR, "ignored_releases.json")
+                    ignored = {}
+                    if os.path.exists(ignore_file):
+                        with open(ignore_file, 'r') as f:
+                            ignored = json.load(f)
+                    ignored[app_name] = version
+                    with open(ignore_file, 'w') as f:
+                        json.dump(ignored, f)
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Missing parameters"}).encode('utf-8'))
         else:
             self.send_response(404)
             self.end_headers()
