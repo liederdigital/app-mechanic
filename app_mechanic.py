@@ -230,7 +230,7 @@ def run_scan():
                 p_late.extend([0] * (max_len - len(p_late)))
                 
                 if p_late > p_inst:
-                    auto_updaters = {'obsidian', 'discord', 'slack', 'notion', 'cursor', 'code', 'spotify', 'figma', 'whatsapp', 'opera', 'antigravity', 'descript', '4k video downloader+', 'codexbar'}
+                    auto_updaters = {'obsidian', 'discord', 'slack', 'notion', 'cursor', 'code', 'spotify', 'figma', 'whatsapp', 'opera', 'antigravity', 'descript', '4k video downloader+', 'codexbar', 'chatgpt', 'claude', 'firefox', 'firefox developer edition'}
                     if name_clean.lower() in auto_updaters:
                         # Assume the app has auto-updated itself to the latest version
                         installed_ver = latest_ver
@@ -281,6 +281,21 @@ def run_scan():
     
     return report_data
 
+def get_macos_update_available():
+    try:
+        import plistlib
+        import subprocess
+        output = subprocess.check_output(['plutil', '-convert', 'xml1', '-o', '-', '/Library/Preferences/com.apple.SoftwareUpdate.plist'], stderr=subprocess.DEVNULL)
+        plist = plistlib.loads(output)
+        updates = plist.get('RecommendedUpdates', [])
+        for update in updates:
+            version = update.get('Display Version') or update.get('Display Name')
+            if version:
+                return f'<span class="status-badge status-outdated" style="margin-left: 0.5rem; padding: 0.15rem 0.5rem; font-size: 0.7rem; display: inline-flex; animation: none; vertical-align: middle;">Update Available: {version}</span>'
+    except Exception:
+        pass
+    return ''
+
 def get_html_content():
     total = len(cached_scan_data)
     outdated = sum(1 for x in cached_scan_data if x["status"] == "outdated")
@@ -288,6 +303,7 @@ def get_html_content():
     pct = round((up_to_date / total) * 100, 1) if total > 0 else 0
     stroke_offset = 226 - (226 * pct / 100)
     mac_os_version = platform.mac_ver()[0]
+    mac_os_update_badge = get_macos_update_available()
 
     template = """<!DOCTYPE html>
 <html lang="en">
@@ -671,7 +687,7 @@ def get_html_content():
 
         th {
             background: rgba(15, 23, 42, 0.4);
-            padding: 1rem 1.25rem;
+            padding: 0.75rem 0.75rem;
             color: var(--text-secondary);
             font-weight: 600;
             border-bottom: 1px solid var(--card-border);
@@ -681,7 +697,7 @@ def get_html_content():
         }
 
         td {
-            padding: 1rem 1.25rem;
+            padding: 0.75rem 0.75rem;
             border-bottom: 1px solid rgba(255, 255, 255, 0.03);
             vertical-align: middle;
         }
@@ -803,7 +819,7 @@ def get_html_content():
         <header>
             <div class="title-area">
                 <h1>App Mechanic</h1>
-                <p>Track updates and versions of all your applications | macOS {{MAC_OS}}</p>
+                <p>Track updates and versions of all your applications | macOS {{MAC_OS}}{{MAC_OS_UPDATE_BADGE}}</p>
             </div>
             <div class="header-actions">
                 <div class="scan-time">
@@ -885,10 +901,8 @@ def get_html_content():
                         <tr>
                             <th>Application</th>
                             <th>Status</th>
-                            <th>Installed Version</th>
-                            <th>Latest Version</th>
+                            <th>Versions</th>
                             <th>Install Method</th>
-                            <th>Update Source</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -987,6 +1001,13 @@ def get_html_content():
                     appNameHtml = `<a href="${row.homepage}" target="_blank" style="color: inherit; text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,0.4);">${row.name}</a>`;
                 }
 
+                let versionsHtml = `<span style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${row.installed} <span style="opacity: 0.5;">➔</span> `;
+                if (row.status === 'outdated') {
+                    versionsHtml += `<span style="color: var(--accent-red); font-weight: bold;">${row.latest}</span></span>`;
+                } else {
+                    versionsHtml += `<span>${row.latest}</span></span>`;
+                }
+
                 const tr = document.createElement('tr');
                 tr.className = 'app-row';
                 tr.setAttribute('data-status', row.status);
@@ -1002,10 +1023,8 @@ def get_html_content():
                             ${statusLabel}
                         </span>
                     </td>
-                    <td>${row.installed}</td>
-                    <td>${row.latest}</td>
-                    <td><span class="source-tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2);">${row.install_method}</span></td>
-                    <td><span class="source-tag">${row.source}</span></td>
+                    <td>${versionsHtml}</td>
+                    <td><span class="source-tag" title="${row.source}" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); cursor: help;">${row.install_method}</span></td>
                     <td>${actionsHtml}</td>
                 `;
                 tbody.appendChild(tr);
@@ -1131,6 +1150,7 @@ def get_html_content():
     template = template.replace("{{STROKE_OFFSET}}", str(stroke_offset))
     template = template.replace("{{HISTORY_JSON}}", json.dumps(load_history()))
     template = template.replace("{{MAC_OS}}", mac_os_version)
+    template = template.replace("{{MAC_OS_UPDATE_BADGE}}", mac_os_update_badge)
     return template
 
 class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):

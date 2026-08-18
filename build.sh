@@ -12,7 +12,12 @@ find "dist/App Mechanic.app/Contents/MacOS" -type f -not -name "App Mechanic" -e
 codesign --force --verify --verbose --sign "Developer ID Application: Lieder Digital, LLC (W6YRSA9Z5F)" --options runtime --timestamp "dist/App Mechanic.app"
 
 cd dist
-ditto -c -k --keepParent "App Mechanic.app" "AppMechanic-Submit.zip"
+ditto -c -k --keepParent --norsrc "App Mechanic.app" "AppMechanic-Submit.zip"
 cd ..
 
 xcrun notarytool submit dist/AppMechanic-Submit.zip --apple-id "it@liederdigital.com" --password "zhal-qcyl-zicm-cgqb" --team-id "W6YRSA9Z5F" --wait
+
+xcrun stapler staple "dist/App Mechanic.app"
+cd dist
+ditto -c -k --keepParent --norsrc "App Mechanic.app" "AppMechanic-v0.3.0-Signed.zip"
+cd ..
