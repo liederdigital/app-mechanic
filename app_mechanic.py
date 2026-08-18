@@ -26,6 +26,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
+APP_VERSION = "0.4.0"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 
 def load_history():
@@ -269,14 +270,17 @@ def run_scan():
     
     total = len(report_data)
     outdated = sum(1 for x in report_data if x["status"] == "outdated")
-    up_to_date = total - outdated
-    pct = round((up_to_date / total) * 100, 1) if total > 0 else 0
+    ignored = sum(1 for x in report_data if x["status"] == "ignored")
+    up_to_date = total - outdated - ignored
+    healthy = up_to_date + ignored
+    pct = round((healthy / total) * 100, 1) if total > 0 else 0
     
     save_history({
         "timestamp": last_scan_time,
         "percentage": pct,
         "up_to_date_count": up_to_date,
-        "outdated_count": outdated
+        "outdated_count": outdated,
+        "ignored_count": ignored
     })
     
     return report_data
@@ -299,8 +303,10 @@ def get_macos_update_available():
 def get_html_content():
     total = len(cached_scan_data)
     outdated = sum(1 for x in cached_scan_data if x["status"] == "outdated")
-    up_to_date = total - outdated
-    pct = round((up_to_date / total) * 100, 1) if total > 0 else 0
+    ignored = sum(1 for x in cached_scan_data if x["status"] == "ignored")
+    up_to_date = total - outdated - ignored
+    healthy = up_to_date + ignored
+    pct = round((healthy / total) * 100, 1) if total > 0 else 0
     stroke_offset = 226 - (226 * pct / 100)
     mac_os_version = platform.mac_ver()[0]
     mac_os_update_badge = get_macos_update_available()
@@ -787,6 +793,71 @@ def get_html_content():
             align-items: center;
         }
 
+        .custom-tooltip-wrapper {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            position: relative;
+        }
+
+        .tooltip-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+            color: var(--text-primary);
+            font-size: 9px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .tooltip-icon:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .tooltip-popup {
+            visibility: hidden;
+            background: rgba(15, 23, 42, 0.95);
+            color: #fff;
+            text-align: center;
+            padding: 0.4rem 0.6rem;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.1);
+            position: absolute;
+            z-index: 100;
+            bottom: 150%;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.15s ease-in-out;
+            white-space: nowrap;
+            font-size: 0.75rem;
+            pointer-events: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            font-family: monospace;
+        }
+
+        /* Triangle pointer for tooltip */
+        .tooltip-popup::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: rgba(15, 23, 42, 0.95) transparent transparent transparent;
+        }
+
+        .custom-tooltip-wrapper:hover .tooltip-popup {
+            visibility: visible;
+            opacity: 1;
+        }
+
         @keyframes pulse-border {
             0%, 100% {
                 box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.2);
@@ -816,7 +887,10 @@ def get_html_content():
 </head>
 <body>
     <div class="container">
-        <header>
+        <header style="position: relative;">
+            <div style="position: absolute; top: 0; right: 0; font-size: 0.8rem; color: var(--text-secondary);">
+                Need help? Contact <a href="mailto:appsupport@liederdigital.com" style="color: inherit; text-decoration: underline;">appsupport@liederdigital.com</a>
+            </div>
             <div class="title-area">
                 <h1>App Mechanic</h1>
                 <p>Track updates and versions of all your applications | macOS {{MAC_OS}}{{MAC_OS_UPDATE_BADGE}}</p>
@@ -871,6 +945,16 @@ def get_html_content():
                     <span>🔴</span>
                 </div>
             </div>
+
+            <div class="stat-card">
+                <div class="stat-info">
+                    <h3>Ignored</h3>
+                    <div class="stat-value" id="lblIgnoredCount" style="color: #eab308;">{{IGNORED}}</div>
+                </div>
+                <div class="stat-icon" style="background: rgba(234, 179, 8, 0.1); color: #eab308; width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+                    <span>🟡</span>
+                </div>
+            </div>
         </div>
 
         <!-- History Section -->
@@ -892,6 +976,7 @@ def get_html_content():
                     <button class="btn active" id="btnAll" onclick="filterApps('all')">All Apps</button>
                     <button class="btn" id="btnOutdated" onclick="filterApps('outdated')">Outdated</button>
                     <button class="btn" id="btnUpToDate" onclick="filterApps('up_to_date')">Up to Date</button>
+                    <button class="btn" id="btnIgnored" onclick="filterApps('ignored')">Ignored</button>
                 </div>
             </div>
 
@@ -912,6 +997,13 @@ def get_html_content():
                 </table>
             </div>
         </div>
+
+        <footer style="margin-top: 3rem; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.5rem; display: flex; justify-content: center; text-align: center; color: var(--text-secondary); font-size: 0.8rem; padding-bottom: 2rem;">
+            <div style="line-height: 1.8;">
+                © 2026 Lieder Digital, LLC. All rights reserved. <br>
+                <a href="https://liederdigital.com/apps/app-mechanic?utm_source=app_mechanic_macos&utm_medium=desktop_app&utm_campaign=footer_link" target="_blank" style="color: inherit; text-decoration: underline;">App Mechanic</a> v{{APP_VERSION}} <span id="app-update-notice" style="display: none; color: var(--accent-red); margin-left: 0.5rem; font-weight: 500;">(Update Available! <a id="app-update-link" href="#" target="_blank" style="color: var(--accent-red); text-decoration: underline;">Download</a>)</span>
+            </div>
+        </footer>
     </div>
 
     <script>
@@ -954,19 +1046,25 @@ def get_html_content():
 
             const total = data.length;
             const outdated = data.filter(x => x.status === 'outdated').length;
-            const upToDate = total - outdated;
-            const pct = total > 0 ? Math.round((upToDate / total) * 1000) / 10 : 0;
+            const ignored = data.filter(x => x.status === 'ignored').length;
+            const upToDate = total - outdated - ignored;
+            const healthy = upToDate + ignored;
+            const pct = total > 0 ? Math.round((healthy / total) * 1000) / 10 : 0;
 
             // Update stats labels
             document.getElementById('lblOverallPct').textContent = pct + '%';
             document.getElementById('lblProgressRingText').textContent = Math.round(pct) + '%';
             document.getElementById('lblUpToDateCount').textContent = upToDate;
             document.getElementById('lblOutdatedCount').textContent = outdated;
+            const lblIgnored = document.getElementById('lblIgnoredCount');
+            if (lblIgnored) lblIgnored.textContent = ignored;
 
             // Update filter button labels
             document.getElementById('btnAll').textContent = `All Apps (${total})`;
             document.getElementById('btnOutdated').textContent = `Outdated (${outdated})`;
             document.getElementById('btnUpToDate').textContent = `Up to Date (${upToDate})`;
+            const btnIgnored = document.getElementById('btnIgnored');
+            if (btnIgnored) btnIgnored.textContent = `Ignored (${ignored})`;
 
             // Update progress ring stroke dashoffset
             const circle = document.getElementById('progressRingCircle');
@@ -993,6 +1091,8 @@ def get_html_content():
                 actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}')">🚀 Launch</button>`;
                 if (row.status === 'outdated') {
                     actionsHtml += `<button class="action-btn" onclick="ignoreRelease('${row.name.replace(/'/g, "\\'")}', '${row.latest}')">🚫 Ignore</button>`;
+                } else if (row.status === 'ignored') {
+                    actionsHtml += `<button class="action-btn" onclick="unignoreRelease('${row.name.replace(/'/g, "\\'")}')">↩️ Unignore</button>`;
                 }
                 actionsHtml += `</div>`;
                 
@@ -1024,7 +1124,13 @@ def get_html_content():
                         </span>
                     </td>
                     <td>${versionsHtml}</td>
-                    <td><span class="source-tag" title="${row.source}" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); cursor: help;">${row.install_method}</span></td>
+                    <td>
+                        <div class="custom-tooltip-wrapper">
+                            <span class="source-tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); width: 110px; text-align: center; display: inline-block; box-sizing: border-box;">${row.install_method}</span>
+                            <span class="tooltip-icon" onclick="alert('Update Source: ' + '${row.source}')">?</span>
+                            <span class="tooltip-popup">${row.source}</span>
+                        </div>
+                    </td>
                     <td>${actionsHtml}</td>
                 `;
                 tbody.appendChild(tr);
@@ -1047,6 +1153,21 @@ def get_html_content():
                 })
                 .catch(err => {
                     console.error('Failed to ignore:', err);
+                });
+        }
+
+        function unignoreRelease(appName) {
+            fetch(`/api/unignore?app=${encodeURIComponent(appName)}`)
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        triggerRefresh();
+                    } else {
+                        alert('Failed to unignore: ' + res.message);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to unignore:', err);
                 });
         }
 
@@ -1098,6 +1219,7 @@ def get_html_content():
             if (filterType === 'all') document.getElementById('btnAll').classList.add('active');
             if (filterType === 'outdated') document.getElementById('btnOutdated').classList.add('active');
             if (filterType === 'up_to_date') document.getElementById('btnUpToDate').classList.add('active');
+            if (filterType === 'ignored') document.getElementById('btnIgnored').classList.add('active');
 
             filterRows();
         }
@@ -1137,6 +1259,19 @@ def get_html_content():
             .then(res => {
                 updateUI(res.data, res.scan_time, res.history);
             });
+
+        // Check for App Mechanic self-updates
+        fetch('https://api.github.com/repos/liederdigital/app-mechanic/releases/latest')
+            .then(res => res.json())
+            .then(data => {
+                if (data.tag_name) {
+                    const currentVersion = "v{{APP_VERSION}}";
+                    if (data.tag_name !== currentVersion && data.tag_name > currentVersion) {
+                        document.getElementById('app-update-notice').style.display = 'inline';
+                        document.getElementById('app-update-link').href = data.html_url;
+                    }
+                }
+            }).catch(e => console.error("Could not check for App Mechanic updates:", e));
     </script>
 </body>
 </html>
@@ -1144,6 +1279,7 @@ def get_html_content():
     # Replace template tokens
     template = template.replace("{{PCT}}", str(pct))
     template = template.replace("{{OUTDATED}}", str(outdated))
+    template = template.replace("{{IGNORED}}", str(ignored))
     template = template.replace("{{UP_TO_DATE}}", str(up_to_date))
     template = template.replace("{{TOTAL}}", str(total))
     template = template.replace("{{TIME_STR}}", str(last_scan_time))
@@ -1151,6 +1287,7 @@ def get_html_content():
     template = template.replace("{{HISTORY_JSON}}", json.dumps(load_history()))
     template = template.replace("{{MAC_OS}}", mac_os_version)
     template = template.replace("{{MAC_OS_UPDATE_BADGE}}", mac_os_update_badge)
+    template = template.replace("{{APP_VERSION}}", APP_VERSION)
     return template
 
 class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
@@ -1227,6 +1364,35 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                     ignored[app_name] = version
                     with open(ignore_file, 'w') as f:
                         json.dump(ignored, f)
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Missing parameters"}).encode('utf-8'))
+        elif self.path.startswith('/api/unignore'):
+            from urllib.parse import urlparse, parse_qs
+            query_components = parse_qs(urlparse(self.path).query)
+            app_name = query_components.get('app', [''])[0]
+            if app_name:
+                try:
+                    ignore_file = os.path.join(HISTORY_DIR, "ignored_releases.json")
+                    ignored = {}
+                    if os.path.exists(ignore_file):
+                        with open(ignore_file, 'r') as f:
+                            ignored = json.load(f)
+                    if app_name in ignored:
+                        del ignored[app_name]
+                        with open(ignore_file, 'w') as f:
+                            json.dump(ignored, f)
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()

@@ -19,5 +19,5 @@ xcrun notarytool submit dist/AppMechanic-Submit.zip --apple-id "it@liederdigital
 
 xcrun stapler staple "dist/App Mechanic.app"
 cd dist
-ditto -c -k --keepParent --norsrc "App Mechanic.app" "AppMechanic-v0.3.0-Signed.zip"
+ditto -c -k --keepParent --norsrc "App Mechanic.app" "AppMechanic-v0.4.0-Signed.zip"
 cd ..
