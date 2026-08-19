@@ -26,7 +26,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -1538,29 +1538,35 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 return
             
             try:
-                # Call Lemon Squeezy API
+                # Call Gumroad API
+                import urllib.parse
                 import urllib.request
-                import getpass
-                instance_name = f"{getpass.getuser()}'s Mac"
-                data = json.dumps({"license_key": key, "instance_name": instance_name}).encode('utf-8')
-                req = urllib.request.Request("https://api.lemonsqueezy.com/v1/licenses/activate", data=data, headers={"Content-Type": "application/json", "Accept": "application/json"})
                 
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    res_data = json.loads(response.read().decode('utf-8'))
-                    if res_data.get('activated') or (res_data.get('error') == 'License key already activated.' and res_data.get('license_key', {}).get('status') == 'active'):
-                        # Valid!
-                        with open(LICENSE_FILE, 'w') as f:
-                            json.dump({"valid": True, "key": key}, f)
-                        self.send_response(200)
-                        self.send_header('Content-type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
-                    else:
-                        error_msg = res_data.get('error', 'Invalid license key.')
-                        self.send_response(400)
-                        self.send_header('Content-type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"status": "error", "message": error_msg}).encode('utf-8'))
+                product_permalink = "appmechanic"
+                data = urllib.parse.urlencode({"product_permalink": product_permalink, "license_key": key}).encode('utf-8')
+                req = urllib.request.Request("https://api.gumroad.com/v2/licenses/verify", data=data)
+                
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        res_data = json.loads(response.read().decode('utf-8'))
+                        if res_data.get('success') and not res_data.get('purchase', {}).get('refunded'):
+                            # Valid!
+                            with open(LICENSE_FILE, 'w') as f:
+                                json.dump({"valid": True, "key": key}, f)
+                            self.send_response(200)
+                            self.send_header('Content-type', 'application/json')
+                            self.end_headers()
+                            self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                        else:
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self.end_headers()
+                            self.wfile.write(json.dumps({"status": "error", "message": "Invalid or refunded license key."}).encode('utf-8'))
+                except urllib.error.HTTPError as e:
+                    self.send_response(400)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": "Invalid license key."}).encode('utf-8'))
             except Exception as e:
                 self.send_response(500)
                 self.send_header('Content-type', 'application/json')
