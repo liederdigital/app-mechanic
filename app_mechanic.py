@@ -26,9 +26,45 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
+LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
+def is_pro_unlocked():
+    if os.path.exists(LICENSE_FILE):
+        try:
+            with open(LICENSE_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get("valid", False)
+        except:
+            pass
+    return False
+
+USAGE_FILE = os.path.join(HISTORY_DIR, "usage.json")
+
+def check_and_increment_scan_usage():
+    # Returns True if they are allowed to scan, False if limit reached
+    if is_pro_unlocked():
+        return True
+        
+    usage = {"scan_count": 0}
+    if os.path.exists(USAGE_FILE):
+        try:
+            with open(USAGE_FILE, 'r') as f:
+                usage = json.load(f)
+        except:
+            pass
+            
+    if usage.get("scan_count", 0) >= 3:
+        return False
+        
+    usage["scan_count"] = usage.get("scan_count", 0) + 1
+    try:
+        with open(USAGE_FILE, 'w') as f:
+            json.dump(usage, f)
+    except:
+        pass
+    return True
 def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
@@ -1006,7 +1042,26 @@ def get_html_content():
         </footer>
     </div>
 
+    <!-- Unlock Modal -->
+    <div id="unlockModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: var(--bg-color); border: 1px solid var(--card-border); padding: 2rem; border-radius: 12px; width: 400px; max-width: 90%; text-align: center;">
+            <h2 style="margin-top: 0; color: var(--text-primary);">Unlock Pro Features</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem;">
+                App Mechanic is free to scan your apps. To unlock one-click app launching and ignoring updates, please upgrade to Pro.
+            </p>
+            <input type="text" id="licenseKeyInput" placeholder="Enter Lemon Squeezy License Key" style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card-bg); color: white; margin-bottom: 1rem; box-sizing: border-box;">
+            <div style="display: flex; gap: 1rem; justify-content: center;">
+                <button onclick="document.getElementById('unlockModal').style.display='none'" class="btn" style="flex: 1;">Cancel</button>
+                <button onclick="activateLicense()" id="btnActivate" class="btn" style="flex: 1; background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Activate</button>
+            </div>
+            <div style="margin-top: 1rem;">
+                <a href="https://liederdigital.com/apps/app-mechanic" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-size: 0.85rem;">Purchase a Pro License →</a>
+            </div>
+        </div>
+    </div>
+
     <script>
+        const isProUnlocked = {{IS_PRO_UNLOCKED}};
         let currentFilter = 'all';
         let scanData = [];
         let scanHistory = {{HISTORY_JSON}};
@@ -1088,11 +1143,15 @@ def get_html_content():
                 }
                 
                 let actionsHtml = `<div class="action-cell">`;
-                actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}')">🚀 Launch</button>`;
-                if (row.status === 'outdated') {
-                    actionsHtml += `<button class="action-btn" onclick="ignoreRelease('${row.name.replace(/'/g, "\\'")}', '${row.latest}')">🚫 Ignore</button>`;
-                } else if (row.status === 'ignored') {
-                    actionsHtml += `<button class="action-btn" onclick="unignoreRelease('${row.name.replace(/'/g, "\\'")}')">↩️ Unignore</button>`;
+                if (isProUnlocked) {
+                    actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}')">🚀 Launch</button>`;
+                    if (row.status === 'outdated') {
+                        actionsHtml += `<button class="action-btn" onclick="ignoreRelease('${row.name.replace(/'/g, "\\'")}', '${row.latest}')">🚫 Ignore</button>`;
+                    } else if (row.status === 'ignored') {
+                        actionsHtml += `<button class="action-btn" onclick="unignoreRelease('${row.name.replace(/'/g, "\\'")}')">↩️ Unignore</button>`;
+                    }
+                } else {
+                    actionsHtml += `<button class="action-btn" onclick="document.getElementById('unlockModal').style.display='flex'">🔒 Unlock Pro</button>`;
                 }
                 actionsHtml += `</div>`;
                 
@@ -1137,6 +1196,31 @@ def get_html_content():
             });
 
             filterRows();
+        }
+
+        function activateLicense() {
+            const key = document.getElementById('licenseKeyInput').value.trim();
+            if (!key) return;
+            const btn = document.getElementById('btnActivate');
+            btn.textContent = 'Activating...';
+            btn.disabled = true;
+            fetch('/api/activate?key=' + encodeURIComponent(key))
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        alert('App Mechanic Pro unlocked successfully! Enjoy.');
+                        window.location.reload();
+                    } else {
+                        alert('Activation failed: ' + res.message);
+                        btn.textContent = 'Activate';
+                        btn.disabled = false;
+                    }
+                })
+                .catch(err => {
+                    alert('Error communicating with server.');
+                    btn.textContent = 'Activate';
+                    btn.disabled = false;
+                });
         }
 
         function ignoreRelease(appName, version) {
@@ -1192,13 +1276,23 @@ def get_html_content():
             btn.disabled = true;
 
             fetch('/api/scan')
-                .then(res => res.json())
+                .then(async res => {
+                    if (res.status === 429) {
+                        const data = await res.json();
+                        alert(data.message);
+                        document.getElementById('unlockModal').style.display = 'flex';
+                        throw new Error('Limit reached');
+                    }
+                    return res.json();
+                })
                 .then(res => {
                     updateUI(res.data, res.scan_time, res.history);
                 })
                 .catch(err => {
-                    console.error('Scan failed:', err);
-                    alert('Scan failed. Please check the terminal output.');
+                    if (err.message !== 'Limit reached') {
+                        console.error('Scan failed:', err);
+                        alert('Scan failed. Please check the terminal output.');
+                    }
                 })
                 .finally(() => {
                     btn.classList.remove('loading');
@@ -1288,6 +1382,7 @@ def get_html_content():
     template = template.replace("{{MAC_OS}}", mac_os_version)
     template = template.replace("{{MAC_OS_UPDATE_BADGE}}", mac_os_update_badge)
     template = template.replace("{{APP_VERSION}}", APP_VERSION)
+    template = template.replace("{{IS_PRO_UNLOCKED}}", "true" if is_pro_unlocked() else "false")
     return template
 
 class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
@@ -1312,6 +1407,12 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(response).encode('utf-8'))
         elif self.path == '/api/scan':
+            if not check_and_increment_scan_usage():
+                self.send_response(429)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "You have reached your free scan limit of 3 scans. Please upgrade to Pro to continue scanning."}).encode('utf-8'))
+                return
             new_data = run_scan()
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -1329,6 +1430,12 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "shutting down"}).encode('utf-8'))
             threading.Thread(target=self.server.shutdown, daemon=True).start()
         elif self.path.startswith('/api/launch'):
+            if not is_pro_unlocked():
+                self.send_response(403)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Pro license required"}).encode('utf-8'))
+                return
             from urllib.parse import urlparse, parse_qs
             query_components = parse_qs(urlparse(self.path).query)
             app_name = query_components.get('app', [''])[0]
@@ -1350,6 +1457,12 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": "Missing app parameter"}).encode('utf-8'))
         elif self.path.startswith('/api/ignore'):
+            if not is_pro_unlocked():
+                self.send_response(403)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Pro license required"}).encode('utf-8'))
+                return
             from urllib.parse import urlparse, parse_qs
             query_components = parse_qs(urlparse(self.path).query)
             app_name = query_components.get('app', [''])[0]
@@ -1379,6 +1492,12 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": "Missing parameters"}).encode('utf-8'))
         elif self.path.startswith('/api/unignore'):
+            if not is_pro_unlocked():
+                self.send_response(403)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Pro license required"}).encode('utf-8'))
+                return
             from urllib.parse import urlparse, parse_qs
             query_components = parse_qs(urlparse(self.path).query)
             app_name = query_components.get('app', [''])[0]
@@ -1407,6 +1526,46 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": "Missing parameters"}).encode('utf-8'))
+        elif self.path.startswith('/api/activate'):
+            from urllib.parse import urlparse, parse_qs
+            query_components = parse_qs(urlparse(self.path).query)
+            key = query_components.get('key', [''])[0]
+            if not key:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "No key provided"}).encode('utf-8'))
+                return
+            
+            try:
+                # Call Lemon Squeezy API
+                import urllib.request
+                import getpass
+                instance_name = f"{getpass.getuser()}'s Mac"
+                data = json.dumps({"license_key": key, "instance_name": instance_name}).encode('utf-8')
+                req = urllib.request.Request("https://api.lemonsqueezy.com/v1/licenses/activate", data=data, headers={"Content-Type": "application/json", "Accept": "application/json"})
+                
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    res_data = json.loads(response.read().decode('utf-8'))
+                    if res_data.get('activated') or (res_data.get('error') == 'License key already activated.' and res_data.get('license_key', {}).get('status') == 'active'):
+                        # Valid!
+                        with open(LICENSE_FILE, 'w') as f:
+                            json.dump({"valid": True, "key": key}, f)
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                    else:
+                        error_msg = res_data.get('error', 'Invalid license key.')
+                        self.send_response(400)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"status": "error", "message": error_msg}).encode('utf-8'))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Failed to connect to licensing server"}).encode('utf-8'))
         else:
             self.send_response(404)
             self.end_headers()

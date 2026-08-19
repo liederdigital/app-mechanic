@@ -18,6 +18,8 @@ cd ..
 xcrun notarytool submit dist/AppMechanic-Submit.zip --apple-id "it@liederdigital.com" --password "zhal-qcyl-zicm-cgqb" --team-id "W6YRSA9Z5F" --wait
 
 xcrun stapler staple "dist/App Mechanic.app"
+# Step 4: Create release ZIP
+echo "Creating zip archive for distribution..."
 cd dist
-ditto -c -k --keepParent --norsrc "App Mechanic.app" "AppMechanic-v0.4.0-Signed.zip"
+zip -qr AppMechanic-v0.5.0-Signed.zip "App Mechanic.app"
 cd ..
