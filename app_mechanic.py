@@ -26,7 +26,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.5.3"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -923,10 +923,10 @@ def get_html_content():
 </head>
 <body>
     <div class="container">
-        <header style="position: relative;">
-            <div style="position: absolute; top: 0; right: 0; font-size: 0.8rem; color: var(--text-secondary);">
-                Need help? Contact <a href="mailto:appsupport@liederdigital.com" style="color: inherit; text-decoration: underline;">appsupport@liederdigital.com</a>
-            </div>
+        <div style="text-align: right; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+            Need help? Contact <a href="mailto:appsupport@liederdigital.com" style="color: inherit; text-decoration: underline;">appsupport@liederdigital.com</a>
+        </div>
+        <header>
             <div class="title-area">
                 <h1>App Mechanic</h1>
                 <p>Track updates and versions of all your applications | macOS {{MAC_OS}}{{MAC_OS_UPDATE_BADGE}}</p>
@@ -1049,7 +1049,7 @@ def get_html_content():
             <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem;">
                 App Mechanic is free to scan your apps. To unlock one-click app launching and ignoring updates, please upgrade to Pro.
             </p>
-            <input type="text" id="licenseKeyInput" placeholder="Enter Lemon Squeezy License Key" style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card-bg); color: white; margin-bottom: 1rem; box-sizing: border-box;">
+            <input type="text" id="licenseKeyInput" placeholder="Enter Gumroad License Key" style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card-bg); color: white; margin-bottom: 1rem; box-sizing: border-box;">
             <div style="display: flex; gap: 1rem; justify-content: center;">
                 <button onclick="document.getElementById('unlockModal').style.display='none'" class="btn" style="flex: 1;">Cancel</button>
                 <button onclick="activateLicense()" id="btnActivate" class="btn" style="flex: 1; background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Activate</button>
@@ -1360,7 +1360,21 @@ def get_html_content():
             .then(data => {
                 if (data.tag_name) {
                     const currentVersion = "v{{APP_VERSION}}";
-                    if (data.tag_name !== currentVersion && data.tag_name > currentVersion) {
+                    
+                    // Simple semver comparison: splits vX.Y.Z into arrays and compares numerically
+                    const parseVersion = (v) => v.replace(/^v/, '').split('.').map(Number);
+                    const v1 = parseVersion(data.tag_name);
+                    const v2 = parseVersion(currentVersion);
+                    
+                    let isNewer = false;
+                    for (let i = 0; i < Math.max(v1.length, v2.length); i++) {
+                        const num1 = v1[i] || 0;
+                        const num2 = v2[i] || 0;
+                        if (num1 > num2) { isNewer = true; break; }
+                        if (num1 < num2) { break; }
+                    }
+                    
+                    if (isNewer) {
                         document.getElementById('app-update-notice').style.display = 'inline';
                         document.getElementById('app-update-link').href = data.html_url;
                     }
