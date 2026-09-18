@@ -26,7 +26,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.5.3"
+APP_VERSION = "0.5.4"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -126,6 +126,25 @@ def get_mas_outdated():
         print(f"Warning: Failed checking mas updates: {e}")
     return {}
 
+def get_mas_installed():
+    try:
+        res = subprocess.run(["mas", "list"], capture_output=True, text=True, timeout=30)
+        if res.returncode == 0:
+            installed = {}
+            for line in res.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                match = re.match(r'^\s*(\d+)\s+(.*?)\s+\((.*?)\)$', line.strip())
+                if match:
+                    app_id, name, version = match.groups()
+                    installed[name.lower()] = app_id
+            return installed
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"Warning: Failed checking mas list: {e}")
+    return {}
+
 def parse_version(v):
     m = re.search(r'^\d+(\.\d+)+', v.strip())
     if m:
@@ -141,12 +160,154 @@ def get_installed_casks():
         pass
     return set()
 
+def get_npm_tools():
+    print("Checking NPM tools...")
+    tools = []
+    try:
+        ls_res = subprocess.run(["npm", "ls", "-g", "--depth=0", "--json"], capture_output=True, text=True, timeout=15)
+        outdated_res = subprocess.run(["npm", "outdated", "-g", "--json"], capture_output=True, text=True, timeout=15)
+        
+        installed = {}
+        if ls_res.returncode in [0, 1]:
+            try:
+                ls_data = json.loads(ls_res.stdout)
+                dependencies = ls_data.get("dependencies", {})
+                for name, info in dependencies.items():
+                    installed[name] = info.get("version", "Unknown")
+            except:
+                pass
+                
+        outdated = {}
+        if outdated_res.returncode in [0, 1]:
+            try:
+                outdated_data = json.loads(outdated_res.stdout)
+                for name, info in outdated_data.items():
+                    outdated[name] = info
+            except:
+                pass
+                
+        for name, version in installed.items():
+            latest = version
+            status = "up_to_date"
+            if name in outdated:
+                latest = outdated[name].get("latest", version)
+                if latest != version:
+                    status = "outdated"
+                    
+            tools.append({
+                "name": name,
+                "installed": version,
+                "latest": latest,
+                "status": status,
+                "source": "NPM Global",
+                "install_method": "NPM",
+                "homepage": f"https://www.npmjs.com/package/{name}",
+                "type": "cli"
+            })
+    except FileNotFoundError:
+        print("npm not found, skipping...")
+    except Exception as e:
+        print(f"Warning: Failed checking NPM: {e}")
+    return tools
+
+def get_pipx_tools():
+    print("Checking Python (pipx) tools...")
+    tools = []
+    try:
+        ls_res = subprocess.run(["pipx", "list", "--json"], capture_output=True, text=True, timeout=15)
+        if ls_res.returncode == 0:
+            ls_data = json.loads(ls_res.stdout)
+            venvs = ls_data.get("venvs", {})
+            for name, info in venvs.items():
+                version = info.get("metadata", {}).get("main_package", {}).get("package_version", "Unknown")
+                tools.append({
+                    "name": name,
+                    "installed": version,
+                    "latest": version,
+                    "status": "up_to_date",
+                    "source": "Pipx",
+                    "install_method": "Pipx",
+                    "homepage": f"https://pypi.org/project/{name}/",
+                    "type": "cli"
+                })
+            
+            import urllib.request
+            for tool in tools:
+                try:
+                    req = urllib.request.Request(f"https://pypi.org/pypi/{tool['name']}/json")
+                    with urllib.request.urlopen(req, timeout=3) as response:
+                        pypi_data = json.loads(response.read().decode('utf-8'))
+                        latest = pypi_data.get("info", {}).get("version", tool['installed'])
+                        tool['latest'] = latest
+                        if latest != tool['installed']:
+                            tool['status'] = "outdated"
+                except:
+                    pass
+    except FileNotFoundError:
+        print("pipx not found, skipping...")
+    except Exception as e:
+        print(f"Warning: Failed checking pipx: {e}")
+    return tools
+
+def get_brew_formulae():
+    print("Checking Homebrew Formulae (CLI)...")
+    tools = []
+    try:
+        leaves_res = subprocess.run(["brew", "leaves"], capture_output=True, text=True, timeout=15)
+        if leaves_res.returncode != 0:
+            return tools
+        leaves = set(leaves_res.stdout.strip().split('\n'))
+        
+        info_res = subprocess.run(["brew", "info", "--json=v2", "--installed"], capture_output=True, text=True, timeout=30)
+        outdated_res = subprocess.run(["brew", "outdated", "--formula", "--json"], capture_output=True, text=True, timeout=30)
+        
+        installed_info = {}
+        if info_res.returncode == 0:
+            info_data = json.loads(info_res.stdout)
+            for f in info_data.get("formulae", []):
+                installed_info[f["name"]] = f
+                
+        outdated_info = {}
+        if outdated_res.returncode == 0:
+            outdated_data = json.loads(outdated_res.stdout)
+            for f in outdated_data.get("formulae", []):
+                outdated_info[f["name"]] = f
+                
+        for name in leaves:
+            if not name: continue
+            info = installed_info.get(name, {})
+            installed_ver = info.get("installed", [{}])[0].get("version", "Unknown") if info.get("installed") else "Unknown"
+            
+            latest_ver = installed_ver
+            status = "up_to_date"
+            
+            if name in outdated_info:
+                latest_ver = outdated_info[name].get("current_version", installed_ver)
+                status = "outdated"
+                
+            tools.append({
+                "name": name,
+                "installed": installed_ver,
+                "latest": latest_ver,
+                "status": status,
+                "source": "Homebrew Formula",
+                "install_method": "Homebrew CLI",
+                "homepage": info.get("homepage", ""),
+                "type": "cli"
+            })
+    except FileNotFoundError:
+        print("brew not found, skipping...")
+    except Exception as e:
+        print(f"Warning: Failed checking Homebrew Formulae: {e}")
+    return tools
+
 def run_scan():
     global cached_scan_data, last_scan_time
     print("Scanning installed applications...")
     apps_dir = "/Applications"
     casks = fetch_brew_casks()
     mas_outdated = get_mas_outdated()
+    mas_installed = get_mas_installed()
     installed_casks = get_installed_casks()
     
     ignored_file = os.path.join(HISTORY_DIR, "ignored_releases.json")
@@ -236,7 +397,9 @@ def run_scan():
                 "status": status,
                 "source": "Mac App Store",
                 "install_method": install_method,
-                "homepage": f"macappstore://show?app={mas_info['id']}"
+                "homepage": f"macappstore://apps.apple.com/app/id{mas_info['id']}",
+                "mas_id": mas_info['id'],
+                "type": "gui"
             })
             continue
 
@@ -253,7 +416,9 @@ def run_scan():
                     "status": "up_to_date",
                     "source": "System/Web",
                     "install_method": install_method,
-                    "homepage": homepage
+                    "homepage": homepage,
+                    "mas_id": mas_installed.get(name_clean.lower()),
+                    "type": "gui"
                 })
                 continue
                 
@@ -288,7 +453,9 @@ def run_scan():
                 "status": status,
                 "source": f"Homebrew Cask ({token})",
                 "install_method": install_method,
-                "homepage": homepage
+                "homepage": homepage,
+                "mas_id": mas_installed.get(name_clean.lower()),
+                "type": "gui"
             })
         else:
             report_data.append({
@@ -298,9 +465,16 @@ def run_scan():
                 "status": "up_to_date",
                 "source": "Native / OS",
                 "install_method": install_method,
-                "homepage": ""
+                "homepage": "",
+                "mas_id": mas_installed.get(name_clean.lower()),
+                "type": "gui"
             })
             
+    # Also grab CLI tools
+    report_data.extend(get_npm_tools())
+    report_data.extend(get_pipx_tools())
+    report_data.extend(get_brew_formulae())
+
     cached_scan_data = report_data
     last_scan_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
     
@@ -1049,7 +1223,7 @@ def get_html_content():
             <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem;">
                 App Mechanic is free to scan your apps. To unlock one-click app launching and ignoring updates, please upgrade to Pro.
             </p>
-            <input type="text" id="licenseKeyInput" placeholder="Enter Gumroad License Key" style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card-bg); color: white; margin-bottom: 1rem; box-sizing: border-box;">
+            <input type="text" id="licenseKeyInput" placeholder="Enter Gumroad License Key or Promo Code" style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card-bg); color: white; margin-bottom: 1rem; box-sizing: border-box;">
             <div style="display: flex; gap: 1rem; justify-content: center;">
                 <button onclick="document.getElementById('unlockModal').style.display='none'" class="btn" style="flex: 1;">Cancel</button>
                 <button onclick="activateLicense()" id="btnActivate" class="btn" style="flex: 1; background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Activate</button>
@@ -1129,6 +1303,14 @@ def get_html_content():
             // Render table
             const tbody = document.getElementById('appsTableBody');
             tbody.innerHTML = '';
+            // Sort data to put CLI tools first
+            data.sort((a, b) => {
+                const aIsCLI = a.type === 'cli';
+                const bIsCLI = b.type === 'cli';
+                if (aIsCLI && !bIsCLI) return -1;
+                if (!aIsCLI && bIsCLI) return 1;
+                return a.name.localeCompare(b.name);
+            });
             
             data.forEach(row => {
                 let statusLabel = 'Update Available';
@@ -1144,7 +1326,12 @@ def get_html_content():
                 
                 let actionsHtml = `<div class="action-cell">`;
                 if (isProUnlocked) {
-                    actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}')">🚀 Launch</button>`;
+                    if (row.type !== 'cli') {
+                        let masIdArg = row.mas_id ? `'${row.mas_id}'` : `null`;
+                        actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}', ${masIdArg})">🚀 Launch</button>`;
+                    } else if (row.status === 'outdated') {
+                        actionsHtml += `<button class="action-btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateCliApp('${row.name.replace(/'/g, "\\'")}', '${row.install_method}')">⬆️ Update</button>`;
+                    }
                     if (row.status === 'outdated') {
                         actionsHtml += `<button class="action-btn" onclick="ignoreRelease('${row.name.replace(/'/g, "\\'")}', '${row.latest}')">🚫 Ignore</button>`;
                     } else if (row.status === 'ignored') {
@@ -1167,6 +1354,32 @@ def get_html_content():
                     versionsHtml += `<span>${row.latest}</span></span>`;
                 }
 
+                let installBg = 'rgba(16, 185, 129, 0.1)';
+                let installColor = 'var(--accent-green)';
+                let installBorder = 'rgba(16, 185, 129, 0.2)';
+
+                if (row.install_method === 'Mac App Store') {
+                    installBg = 'rgba(59, 130, 246, 0.1)';
+                    installColor = 'var(--accent-blue)';
+                    installBorder = 'rgba(59, 130, 246, 0.2)';
+                } else if (row.install_method === 'Manual / OS') {
+                    installBg = 'rgba(148, 163, 184, 0.1)';
+                    installColor = 'var(--text-secondary)';
+                    installBorder = 'rgba(148, 163, 184, 0.2)';
+                } else if (row.install_method === 'Homebrew' || row.install_method === 'Homebrew CLI') {
+                    installBg = 'rgba(245, 158, 11, 0.1)';
+                    installColor = '#f59e0b';
+                    installBorder = 'rgba(245, 158, 11, 0.2)';
+                } else if (row.install_method === 'NPM') {
+                    installBg = 'rgba(244, 63, 94, 0.1)';
+                    installColor = 'var(--accent-red)';
+                    installBorder = 'rgba(244, 63, 94, 0.2)';
+                } else if (row.install_method === 'Pipx') {
+                    installBg = 'rgba(234, 179, 8, 0.1)';
+                    installColor = '#eab308';
+                    installBorder = 'rgba(234, 179, 8, 0.2)';
+                }
+
                 const tr = document.createElement('tr');
                 tr.className = 'app-row';
                 tr.setAttribute('data-status', row.status);
@@ -1185,7 +1398,7 @@ def get_html_content():
                     <td>${versionsHtml}</td>
                     <td>
                         <div class="custom-tooltip-wrapper">
-                            <span class="source-tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); width: 110px; text-align: center; display: inline-block; box-sizing: border-box;">${row.install_method}</span>
+                            <span class="source-tag" style="background: ${installBg}; color: ${installColor}; border: 1px solid ${installBorder}; width: 110px; text-align: center; display: inline-block; box-sizing: border-box;">${row.install_method}</span>
                             <span class="tooltip-icon" onclick="alert('Update Source: ' + '${row.source}')">?</span>
                             <span class="tooltip-popup">${row.source}</span>
                         </div>
@@ -1255,8 +1468,12 @@ def get_html_content():
                 });
         }
 
-        function launchApp(appName) {
-            fetch('/api/launch?app=' + encodeURIComponent(appName))
+        function launchApp(appName, masId = null) {
+            let url = '/api/launch?app=' + encodeURIComponent(appName);
+            if (masId) {
+                url += '&mas_id=' + encodeURIComponent(masId);
+            }
+            fetch(url)
                 .then(res => res.json())
                 .then(res => {
                     if (res.status !== 'success') {
@@ -1267,6 +1484,22 @@ def get_html_content():
                 .catch(err => {
                     console.error('Failed to launch:', err);
                     alert('Failed to launch ' + appName);
+                });
+        }
+
+        function updateCliApp(appName, method) {
+            let url = `/api/update_cli?app=${encodeURIComponent(appName)}&method=${encodeURIComponent(method)}`;
+            fetch(url)
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status !== 'success') {
+                        console.error('Update failed:', res.message);
+                        alert('Failed to update ' + appName + ': ' + res.message);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to update:', err);
+                    alert('Failed to update ' + appName);
                 });
         }
 
@@ -1453,9 +1686,13 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             from urllib.parse import urlparse, parse_qs
             query_components = parse_qs(urlparse(self.path).query)
             app_name = query_components.get('app', [''])[0]
-            if app_name:
+            mas_id = query_components.get('mas_id', [''])[0]
+            if app_name or mas_id:
                 try:
-                    subprocess.Popen(["open", "-a", app_name])
+                    if mas_id:
+                        subprocess.Popen(["open", f"macappstore://apps.apple.com/app/id{mas_id}"])
+                    else:
+                        subprocess.Popen(["open", "-a", app_name])
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
@@ -1470,6 +1707,54 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": "Missing app parameter"}).encode('utf-8'))
+        elif self.path.startswith('/api/update_cli'):
+            if not is_pro_unlocked():
+                self.send_response(403)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Pro license required"}).encode('utf-8'))
+                return
+            from urllib.parse import urlparse, parse_qs
+            query_components = parse_qs(urlparse(self.path).query)
+            app_name = query_components.get('app', [''])[0]
+            install_method = query_components.get('method', [''])[0]
+            if app_name and install_method:
+                cmd = ""
+                if install_method == "NPM":
+                    cmd = f"npm install -g {app_name}"
+                elif install_method == "Pipx":
+                    cmd = f"pipx upgrade {app_name}"
+                elif install_method == "Homebrew CLI":
+                    cmd = f"brew upgrade {app_name}"
+                
+                if cmd:
+                    try:
+                        applescript = f'''
+                        tell application "Terminal"
+                            activate
+                            do script "{cmd}"
+                        end tell
+                        '''
+                        subprocess.Popen(["osascript", "-e", applescript])
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                    except Exception as e:
+                        self.send_response(500)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+                else:
+                    self.send_response(400)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": "Unsupported install method"}).encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Missing parameters"}).encode('utf-8'))
         elif self.path.startswith('/api/ignore'):
             if not is_pro_unlocked():
                 self.send_response(403)
@@ -1549,6 +1834,16 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": "No key provided"}).encode('utf-8'))
+                return
+
+            # Developer bypass for testing
+            if key == "BETA-TEST-2026":
+                with open(LICENSE_FILE, 'w') as f:
+                    json.dump({"valid": True, "key": key}, f)
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
                 return
             
             try:
