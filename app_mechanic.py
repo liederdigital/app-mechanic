@@ -1897,7 +1897,8 @@ def start_server(port=8000):
             print(f"  Press Ctrl+C in this Terminal to exit.")
             print(f"==========================================")
             
-            webbrowser.open(f"http://localhost:{port}")
+            import subprocess
+            subprocess.call(['open', f'http://localhost:{port}'])
             httpd.serve_forever()
     except OSError as e:
         if e.errno == 48:
@@ -1912,7 +1913,11 @@ def check_single_instance(port=8000):
         # connect_ex returns 0 if connection succeeds (meaning port is actively in use by our app)
         if s.connect_ex(('localhost', port)) == 0:
             print(f"App Mechanic is already running on port {port}. Opening existing instance...")
-            webbrowser.open(f"http://localhost:{port}")
+            import subprocess
+            import time
+            subprocess.call(['open', f'http://localhost:{port}'])
+            # Delay exit slightly so macOS Finder doesn't show "not open anymore" error
+            time.sleep(1.5)
             sys.exit(0)
 
 def main():
