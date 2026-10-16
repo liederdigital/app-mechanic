@@ -26,7 +26,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.5.4"
+APP_VERSION = "0.5.5"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -137,7 +137,8 @@ def get_mas_installed():
                 match = re.match(r'^\s*(\d+)\s+(.*?)\s+\((.*?)\)$', line.strip())
                 if match:
                     app_id, name, version = match.groups()
-                    installed[name.lower()] = app_id
+                    if app_id != "0":
+                        installed[name.lower()] = app_id
             return installed
     except FileNotFoundError:
         pass
@@ -358,7 +359,7 @@ def run_scan():
         print(f"Error: {apps_dir} directory not found.")
         return []
 
-    all_apps = sorted([f for f in os.listdir(apps_dir) if f.endswith(".app")])
+    all_apps = sorted([f for f in os.listdir(apps_dir) if f.endswith(".app") and not f.startswith(".")])
 
     for item in all_apps:
         name_clean = item[:-4]
@@ -1327,7 +1328,7 @@ def get_html_content():
                 let actionsHtml = `<div class="action-cell">`;
                 if (isProUnlocked) {
                     if (row.type !== 'cli') {
-                        let masIdArg = row.mas_id ? `'${row.mas_id}'` : `null`;
+                        let masIdArg = (row.status === 'outdated' && row.mas_id) ? `'${row.mas_id}'` : `null`;
                         actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}', ${masIdArg})">🚀 Launch</button>`;
                     } else if (row.status === 'outdated') {
                         actionsHtml += `<button class="action-btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateCliApp('${row.name.replace(/'/g, "\\'")}', '${row.install_method}')">⬆️ Update</button>`;
@@ -1689,10 +1690,12 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             mas_id = query_components.get('mas_id', [''])[0]
             if app_name or mas_id:
                 try:
-                    if mas_id:
+                    if mas_id and mas_id != "0":
                         subprocess.Popen(["open", f"macappstore://apps.apple.com/app/id{mas_id}"])
                     else:
-                        subprocess.Popen(["open", "-a", app_name])
+                        app_path = os.path.join("/Applications", f"{app_name}.app")
+                        target = app_path if os.path.exists(app_path) else app_name
+                        subprocess.Popen(["open", "-a", target])
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
