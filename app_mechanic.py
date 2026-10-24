@@ -25,7 +25,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -362,7 +362,7 @@ def get_ai_cli_tools():
                 "status": status,
                 "source": "Meta AI Channel",
                 "install_method": "AI CLI",
-                "update_cmd": "muse",
+                "update_cmd": "MUSE_SYNC_UPDATE=1 muse --version",
                 "homepage": "https://meta.ai",
                 "type": "cli"
             })
@@ -510,7 +510,7 @@ def get_ai_cli_tools():
             "kind": "npm",
             "target": "@openai/codex",
             "source": "OpenAI CLI",
-            "update_cmd": "codex --upgrade",
+            "update_cmd": "codex update",
             "homepage": "https://github.com/openai/codex"
         },
         {
@@ -654,7 +654,7 @@ def get_ai_cli_tools():
             "kind": "github",
             "target": "basecamp/basecamp-cli",
             "source": "GitHub Releases",
-            "update_cmd": "brew upgrade basecamp || go install github.com/basecamp/basecamp-cli/cmd/basecamp@latest",
+            "update_cmd": "basecamp upgrade",
             "homepage": "https://github.com/basecamp/basecamp-cli"
         },
         {
