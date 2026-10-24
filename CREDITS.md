@@ -18,7 +18,7 @@ Licensing and third-party terms are maintained separately in [LICENSE](LICENSE).
 | **Editor** | Google Antigravity IDE (`Antigravity.app`) | Observed (Antigravity session logs) |
 | **Known Models / Modes** | • **Aug 17, 2026 – Sep 21, 2026**: Gemini 3.1 Pro (High)<br>• **Oct 16, 2026 – Oct 24, 2026**: Gemini (Medium effort)<br>• **Jul 28, 2026 – Aug 11, 2026**: Unknown exact model string (Antigravity default prior to explicit model-selection logging) | Observed (`USER_SETTINGS_CHANGE` records in Antigravity transcripts) |
 | **Project Era** | July 27, 2026 – October 24, 2026 (America/Denver, Mountain Time) | Observed (`git log` & session timestamps) |
-| **Current Status** | Active — `v0.5.5` released; official website live at [appmechanic.dev](https://appmechanic.dev) | Observed (`5891abf`, `39d3ac0`, tag `v0.5.5`) |
+| **Current Status** | Active — `v0.6.0` (Pro AI & CLI tool scanner + official website live at [appmechanic.dev](https://appmechanic.dev)) | Observed (`app_mechanic.py`, `setup.py`, `build.sh`) |
 
 ---
 
@@ -39,15 +39,16 @@ Licensing and third-party terms are maintained separately in [LICENSE](LICENSE).
 
 ## Builder History (Newest First)
 
-### 2026-10-23 to 2026-10-24 (America/Denver, MDT) — Marketing Website (`appmechanic.dev`), Interactive Simulator & Provenance Update
+### 2026-10-23 to 2026-10-24 (America/Denver, MDT) — Marketing Website (`appmechanic.dev`), Interactive Simulator, `v0.6.0` Pro AI/CLI Scanner & Provenance Update
 - **Session**: *Creating A Website Like Notchy* (**Observed**)
 - **Builder / Tool**: Google Antigravity (**Observed**)
 - **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
 - **Model / Mode**: Gemini (Medium effort) (**Observed**)
-- **Human Involvement**: Ron Stauffer provided the `notchy.dev` design reference, selected the static HTML/CSS/JS architecture and Free + Pro licensing structure, set up the [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) repository and Cloudflare Pages project, identified a CSS Grid column overflow via screenshot review, registered and connected `appmechanic.dev`, and pointed out the full local Antigravity conversation history to resolve earlier `CREDITS.md` unknowns (**Observed** / **Owner-confirmed**).
+- **Human Involvement**: Ron Stauffer provided the `notchy.dev` design reference, selected the static HTML/CSS/JS architecture and Free + Pro licensing structure, set up the [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) repository and Cloudflare Pages project, identified a CSS Grid column overflow via screenshot review, registered and connected `appmechanic.dev`, pointed out the full local Antigravity conversation history to resolve earlier `CREDITS.md` unknowns, and directed making AI & developer CLI tool scanning (`Claude Code`, `Grok`, `Meta Muse`, `Mistral Vibe`, `OpenAI Codex`, `Hermes Agent`, `OpenClaw`, `Antigravity`, `uv`, `npm`, `pipx`, `brew`) a strictly Pro-only feature (**Observed** / **Owner-confirmed**).
 - **Contributions & References**:
-  - Built the Notchy-inspired glassmorphic landing page in [`docs/index.html`](docs/index.html), [`docs/styles.css`](docs/styles.css), and [`docs/script.js`](docs/script.js) featuring a floating pill navbar, interactive `localhost:8000` dashboard simulator, 5-ecosystem bento grid, copyable setup snippets, Free vs. Pro pricing cards, and FAQ accordion.
-  - Deployed to [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) (`1438b91`), fixed CSS Grid column overflow (`06b2eb5`), and updated metadata and [`app_mechanic.py`](app_mechanic.py) / [`README.md`](README.md) links to `https://appmechanic.dev` (`f39f2b5`, `e7c9270`, `39d3ac0`).
+  - Built the Notchy-inspired glassmorphic landing page in [`docs/index.html`](docs/index.html), [`docs/styles.css`](docs/styles.css), and [`docs/script.js`](docs/script.js) featuring a floating pill navbar, interactive `localhost:8000` dashboard simulator, ecosystem bento grid, copyable setup snippets, Free vs. Pro pricing cards, and FAQ accordion.
+  - Deployed to [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) (`1438b91`, `06b2eb5`, `f39f2b5`, `fd20e48`).
+  - Upgraded [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), and [`build.sh`](build.sh) to `v0.6.0`: gated all CLI & AI agent scanning strictly behind `is_pro_unlocked()`, added `get_ai_cli_tools()` (`claude`, `grok`, `muse`, `codex`, `hermes`, `openclaw`, `agy`) and `get_uv_tools()` (`uv tool list` against PyPI), expanded `get_npm_tools()` across `~/.local/bin/npm` and `/opt/homebrew/bin/npm`, removed `antigravity` from the hardcoded `auto_updaters` skip-list, and wired native 1-click Terminal update commands into `/api/update_cli`.
 
 ### 2026-10-16 (America/Denver, MDT) — `v0.5.5` Launch Fix, Release & Initial Provenance Log
 - **Session**: *Troubleshooting WhisperFlow App Launch* (**Observed**)

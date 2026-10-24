@@ -1,31 +1,63 @@
 // Interactive Live Demo Dataset (mirrors real App Mechanic scan output)
 let demoApps = [
     {
-        name: "@anthropic-ai/claude-code",
-        installed: "1.0.21",
-        latest: "1.0.24",
+        name: "Claude Code (claude)",
+        installed: "2.1.309",
+        latest: "2.1.310",
         status: "outdated",
-        source: "NPM Global",
-        install_method: "NPM",
+        source: "Anthropic CLI",
+        install_method: "AI CLI",
+        update_cmd: "claude update",
         type: "cli"
     },
     {
-        name: "ripgrep",
-        installed: "14.1.0",
-        latest: "14.1.1",
+        name: "Grok Build / CLI (grok)",
+        installed: "1.0.62",
+        latest: "1.0.70",
         status: "outdated",
-        source: "Homebrew Formula",
-        install_method: "Homebrew CLI",
+        source: "xAI CLI",
+        install_method: "AI CLI",
+        update_cmd: "grok update",
         type: "cli"
     },
     {
-        name: "poetry",
-        installed: "1.8.3",
-        latest: "1.8.3",
+        name: "Meta Muse (muse)",
+        installed: "1.4.11-R6667.1",
+        latest: "1.4.12-R6909.1",
+        status: "outdated",
+        source: "Meta AI Channel",
+        install_method: "AI CLI",
+        update_cmd: "muse",
+        type: "cli"
+    },
+    {
+        name: "mistral-vibe",
+        installed: "2.19.0",
+        latest: "3.0.2",
+        status: "outdated",
+        source: "uv tool (PyPI)",
+        install_method: "uv",
+        update_cmd: "uv tool upgrade mistral-vibe",
+        type: "cli"
+    },
+    {
+        name: "OpenClaw Gateway (openclaw)",
+        installed: "2026.9.1",
+        latest: "2026.10.6",
+        status: "outdated",
+        source: "OpenClaw NPM",
+        install_method: "AI CLI",
+        update_cmd: "openclaw-safe-update",
+        type: "cli"
+    },
+    {
+        name: "Antigravity",
+        installed: "2.26.0",
+        latest: "2.26.0",
         status: "up_to_date",
-        source: "Pipx",
-        install_method: "Pipx",
-        type: "cli"
+        source: "Homebrew Cask (antigravity)",
+        install_method: "Homebrew",
+        type: "gui"
     },
     {
         name: "1Password",
@@ -38,8 +70,8 @@ let demoApps = [
     },
     {
         name: "App Mechanic",
-        installed: "0.5.5",
-        latest: "0.5.5",
+        installed: "0.6.0",
+        latest: "0.6.0",
         status: "up_to_date",
         source: "Native / OS",
         install_method: "Manual / OS",
@@ -55,15 +87,6 @@ let demoApps = [
         type: "gui"
     },
     {
-        name: "Cursor",
-        installed: "0.45.11",
-        latest: "0.45.11",
-        status: "up_to_date",
-        source: "Homebrew Cask (cursor)",
-        install_method: "Manual / OS",
-        type: "gui"
-    },
-    {
         name: "Final Cut Pro",
         installed: "10.8",
         latest: "10.8.1",
@@ -73,30 +96,12 @@ let demoApps = [
         type: "gui"
     },
     {
-        name: "Figma",
-        installed: "124.5.2",
-        latest: "124.5.2",
-        status: "up_to_date",
-        source: "Homebrew Cask (figma)",
-        install_method: "Homebrew",
-        type: "gui"
-    },
-    {
         name: "Obsidian",
         installed: "1.7.4",
         latest: "1.7.4",
         status: "up_to_date",
         source: "Homebrew Cask (obsidian)",
         install_method: "Homebrew",
-        type: "gui"
-    },
-    {
-        name: "Pixelmator Pro",
-        installed: "3.6.8",
-        latest: "3.6.8",
-        status: "up_to_date",
-        source: "Mac App Store",
-        install_method: "Mac App Store",
         type: "gui"
     },
     {
@@ -132,16 +137,24 @@ function getMethodBadgeStyle(method) {
         return 'background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.25);';
     } else if (method === 'NPM') {
         return 'background: rgba(244, 63, 94, 0.12); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.25);';
-    } else if (method === 'Pipx') {
+    } else if (method === 'Pipx' || method === 'uv') {
         return 'background: rgba(234, 179, 8, 0.12); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.25);';
+    } else if (method === 'AI CLI') {
+        return 'background: rgba(139, 92, 246, 0.16); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.35);';
     }
     return 'background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.22);';
 }
 
+function getVisibleApps() {
+    // CLI & AI CLI scanning is a Pro-only feature
+    return isDemoPro ? demoApps : demoApps.filter(a => a.type !== 'cli');
+}
+
 function updateSimStats() {
-    const total = demoApps.length;
-    const outdated = demoApps.filter(a => a.status === 'outdated').length;
-    const ignored = demoApps.filter(a => a.status === 'ignored').length;
+    const activeSet = getVisibleApps();
+    const total = activeSet.length;
+    const outdated = activeSet.filter(a => a.status === 'outdated').length;
+    const ignored = activeSet.filter(a => a.status === 'ignored').length;
     const upToDate = total - outdated - ignored;
     const healthy = upToDate + ignored;
     const pct = total > 0 ? Math.round((healthy / total) * 1000) / 10 : 0;
@@ -174,7 +187,7 @@ function renderSimulatedTable() {
     const query = (document.getElementById('simSearchInput')?.value || '').toLowerCase().trim();
 
     // Sort CLI first, then alphabetical (just like app_mechanic.py)
-    const sorted = [...demoApps].sort((a, b) => {
+    const sorted = [...getVisibleApps()].sort((a, b) => {
         if (a.type === 'cli' && b.type !== 'cli') return -1;
         if (a.type !== 'cli' && b.type === 'cli') return 1;
         return a.name.localeCompare(b.name);
@@ -238,7 +251,7 @@ function setSimulatedFilter(filter) {
 function toggleDemoProMode(enabled) {
     isDemoPro = enabled;
     renderSimulatedTable();
-    showSimToast(enabled ? '✨ Pro Mode enabled: 1-click Launch, CLI Update & Ignore unlocked' : '🔒 Free Mode preview: Pro actions locked');
+    showSimToast(enabled ? '✨ Pro Mode enabled: AI CLI & Developer Toolchain Scanner + 1-click actions unlocked!' : '🔒 Free Mode preview: Scanning standard macOS GUI apps only (AI & CLI tools require Pro)');
 }
 
 function simLaunchApp(name) {
@@ -248,7 +261,7 @@ function simLaunchApp(name) {
 function simUpdateCli(name, method) {
     const app = demoApps.find(a => a.name === name);
     if (!app) return;
-    let cmd = method === 'NPM' ? `npm install -g ${name}` : (method === 'Pipx' ? `pipx upgrade ${name}` : `brew upgrade ${name}`);
+    let cmd = app.update_cmd || (method === 'NPM' ? `npm install -g ${name}` : (method === 'uv' ? `uv tool upgrade ${name}` : `brew upgrade ${name}`));
     showSimToast(`⬆️ Terminal executing: "${cmd}" → Updated to ${app.latest}!`);
     app.installed = app.latest;
     app.status = 'up_to_date';

@@ -15,18 +15,17 @@ import socketserver
 import threading
 import ssl
 
-# Ensure Homebrew is in the PATH for bundled apps to find `mas`
-if "/opt/homebrew/bin" not in os.environ.get("PATH", ""):
-    os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
-if "/usr/local/bin" not in os.environ.get("PATH", ""):
-    os.environ["PATH"] += os.pathsep + "/usr/local/bin"
+# Ensure Homebrew and ~/.local/bin are in the PATH for bundled apps
+for extra_bin in ["/opt/homebrew/bin", "/usr/local/bin", os.path.expanduser("~/.local/bin")]:
+    if extra_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = extra_bin + os.pathsep + os.environ.get("PATH", "")
 
 # Global cache of the last scan data
 cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.5.5"
+APP_VERSION = "0.6.0"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -164,51 +163,320 @@ def get_installed_casks():
 def get_npm_tools():
     print("Checking NPM tools...")
     tools = []
-    try:
-        ls_res = subprocess.run(["npm", "ls", "-g", "--depth=0", "--json"], capture_output=True, text=True, timeout=15)
-        outdated_res = subprocess.run(["npm", "outdated", "-g", "--json"], capture_output=True, text=True, timeout=15)
-        
-        installed = {}
-        if ls_res.returncode in [0, 1]:
-            try:
-                ls_data = json.loads(ls_res.stdout)
-                dependencies = ls_data.get("dependencies", {})
-                for name, info in dependencies.items():
-                    installed[name] = info.get("version", "Unknown")
-            except:
-                pass
-                
-        outdated = {}
-        if outdated_res.returncode in [0, 1]:
-            try:
-                outdated_data = json.loads(outdated_res.stdout)
-                for name, info in outdated_data.items():
-                    outdated[name] = info
-            except:
-                pass
-                
-        for name, version in installed.items():
-            latest = version
-            status = "up_to_date"
-            if name in outdated:
-                latest = outdated[name].get("latest", version)
-                if latest != version:
-                    status = "outdated"
+    seen = set()
+    npm_bins = ["/opt/homebrew/bin/npm", os.path.expanduser("~/.local/bin/npm"), "/usr/local/bin/npm", "npm"]
+    checked_bins = set()
+    for npm_bin in npm_bins:
+        real_bin = os.path.realpath(npm_bin) if os.path.exists(npm_bin) else npm_bin
+        if real_bin in checked_bins:
+            continue
+        if npm_bin != "npm" and not os.path.exists(npm_bin):
+            continue
+        checked_bins.add(real_bin)
+        try:
+            ls_res = subprocess.run([npm_bin, "ls", "-g", "--depth=0", "--json"], capture_output=True, text=True, timeout=15)
+            outdated_res = subprocess.run([npm_bin, "outdated", "-g", "--json"], capture_output=True, text=True, timeout=15)
+            
+            installed = {}
+            if ls_res.returncode in [0, 1]:
+                try:
+                    ls_data = json.loads(ls_res.stdout)
+                    dependencies = ls_data.get("dependencies", {})
+                    for name, info in dependencies.items():
+                        installed[name] = info.get("version", "Unknown")
+                except:
+                    pass
                     
+            outdated = {}
+            if outdated_res.returncode in [0, 1]:
+                try:
+                    outdated_data = json.loads(outdated_res.stdout)
+                    for name, info in outdated_data.items():
+                        outdated[name] = info
+                except:
+                    pass
+                    
+            for name, version in installed.items():
+                if name in ("npm", "corepack") or name in seen:
+                    continue
+                seen.add(name)
+                latest = version
+                status = "up_to_date"
+                if name in outdated:
+                    latest = outdated[name].get("latest", version)
+                    if latest != version:
+                        status = "outdated"
+                        
+                tools.append({
+                    "name": name,
+                    "installed": version,
+                    "latest": latest,
+                    "status": status,
+                    "source": "NPM Global",
+                    "install_method": "NPM",
+                    "homepage": f"https://www.npmjs.com/package/{name}",
+                    "type": "cli"
+                })
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"Warning: Failed checking NPM ({npm_bin}): {e}")
+    return tools
+
+def get_uv_tools():
+    print("Checking Python (uv) tools...")
+    tools = []
+    uv_bin = os.path.expanduser("~/.local/bin/uv")
+    if not os.path.exists(uv_bin):
+        uv_bin = "uv"
+    try:
+        ls_res = subprocess.run([uv_bin, "tool", "list"], capture_output=True, text=True, timeout=15)
+        if ls_res.returncode == 0:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            for line in ls_res.stdout.splitlines():
+                m = re.match(r'^([a-zA-Z0-9_\-\.]+)\s+v?([0-9][^\s]*)$', line.strip())
+                if m:
+                    name, installed_ver = m.groups()
+                    latest_ver = installed_ver
+                    status = "up_to_date"
+                    try:
+                        req = urllib.request.Request(f"https://pypi.org/pypi/{name}/json", headers={"User-Agent": "Mozilla/5.0"})
+                        with urllib.request.urlopen(req, timeout=4, context=ctx) as response:
+                            pypi_data = json.loads(response.read().decode('utf-8'))
+                            latest_ver = pypi_data.get("info", {}).get("version", installed_ver)
+                            if latest_ver != installed_ver:
+                                status = "outdated"
+                    except Exception:
+                        pass
+                    tools.append({
+                        "name": name,
+                        "installed": installed_ver,
+                        "latest": latest_ver,
+                        "status": status,
+                        "source": "uv tool (PyPI)",
+                        "install_method": "uv",
+                        "homepage": f"https://pypi.org/project/{name}/",
+                        "type": "cli"
+                    })
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"Warning: Failed checking uv tools: {e}")
+    return tools
+
+def get_ai_cli_tools():
+    print("Checking AI & Standalone CLI tools...")
+    tools = []
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    local_bin = os.path.expanduser("~/.local/bin")
+
+    # 1. Claude Code (`claude`)
+    claude_bin = os.path.join(local_bin, "claude")
+    if os.path.exists(claude_bin):
+        try:
+            res = subprocess.run([claude_bin, "--version"], capture_output=True, text=True, timeout=5)
+            m = re.search(r'(\d+\.\d+\.\d+)', res.stdout)
+            if m:
+                inst_v = m.group(1)
+                late_v = inst_v
+                status = "up_to_date"
+                try:
+                    req = urllib.request.Request("https://registry.npmjs.org/@anthropic-ai/claude-code/latest", headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                        late_v = json.loads(resp.read().decode()).get("version", inst_v)
+                        p_inst, p_late = parse_version(inst_v), parse_version(late_v)
+                        if p_inst and p_late and p_late > p_inst:
+                            status = "outdated"
+                except Exception:
+                    pass
+                tools.append({
+                    "name": "Claude Code (claude)",
+                    "installed": inst_v,
+                    "latest": late_v,
+                    "status": status,
+                    "source": "Anthropic CLI",
+                    "install_method": "AI CLI",
+                    "update_cmd": "claude update",
+                    "homepage": "https://docs.anthropic.com/en/docs/claude-code",
+                    "type": "cli"
+                })
+        except Exception:
+            pass
+
+    # 2. Grok CLI (`grok`)
+    grok_bin = os.path.join(local_bin, "grok")
+    if os.path.exists(grok_bin):
+        try:
+            res = subprocess.run([grok_bin, "update", "--check", "--json"], capture_output=True, text=True, timeout=8)
+            if res.returncode == 0 and res.stdout.strip():
+                gdata = json.loads(res.stdout.strip())
+                inst_v = gdata.get("currentVersion", "Unknown")
+                late_v = gdata.get("latestVersion", inst_v)
+                status = "outdated" if gdata.get("updateAvailable") else "up_to_date"
+                tools.append({
+                    "name": "Grok Build / CLI (grok)",
+                    "installed": inst_v,
+                    "latest": late_v,
+                    "status": status,
+                    "source": "xAI CLI",
+                    "install_method": "AI CLI",
+                    "update_cmd": "grok update",
+                    "homepage": "https://x.ai",
+                    "type": "cli"
+                })
+        except Exception:
+            pass
+
+    # 3. Meta Muse (`muse`)
+    muse_bin = os.path.join(local_bin, "muse")
+    muse_ver_file = os.path.join(local_bin, ".muse-version")
+    if os.path.exists(muse_bin) and os.path.exists(muse_ver_file):
+        try:
+            with open(muse_ver_file, "r") as f:
+                inst_v = f.read().strip()
+            late_v = inst_v
+            status = "up_to_date"
+            try:
+                req = urllib.request.Request("https://api.meta.ai/muse-code/channels/muse-stable", headers={"User-Agent": "muse-code/launcher-3"})
+                with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                    mdata = json.loads(resp.read().decode())
+                    late_v = mdata.get("version", inst_v)
+                    if late_v != inst_v:
+                        status = "outdated"
+            except Exception:
+                pass
             tools.append({
-                "name": name,
-                "installed": version,
-                "latest": latest,
+                "name": "Meta Muse (muse)",
+                "installed": inst_v,
+                "latest": late_v,
                 "status": status,
-                "source": "NPM Global",
-                "install_method": "NPM",
-                "homepage": f"https://www.npmjs.com/package/{name}",
+                "source": "Meta AI Channel",
+                "install_method": "AI CLI",
+                "update_cmd": "muse",
+                "homepage": "https://meta.ai",
                 "type": "cli"
             })
-    except FileNotFoundError:
-        print("npm not found, skipping...")
-    except Exception as e:
-        print(f"Warning: Failed checking NPM: {e}")
+        except Exception:
+            pass
+
+    # 4. OpenAI Codex (`codex`)
+    codex_bin = os.path.join(local_bin, "codex")
+    if os.path.exists(codex_bin):
+        try:
+            res = subprocess.run([codex_bin, "--version"], capture_output=True, text=True, timeout=5)
+            m = re.search(r'(\d+\.\d+\.\d+)', res.stdout)
+            if m:
+                inst_v = m.group(1)
+                late_v = inst_v
+                status = "up_to_date"
+                try:
+                    req = urllib.request.Request("https://registry.npmjs.org/@openai/codex/latest", headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                        late_v = json.loads(resp.read().decode()).get("version", inst_v)
+                        p_inst, p_late = parse_version(inst_v), parse_version(late_v)
+                        if p_inst and p_late and p_late > p_inst:
+                            status = "outdated"
+                except Exception:
+                    pass
+                tools.append({
+                    "name": "OpenAI Codex (codex)",
+                    "installed": inst_v,
+                    "latest": late_v,
+                    "status": status,
+                    "source": "OpenAI CLI",
+                    "install_method": "AI CLI",
+                    "update_cmd": "codex --upgrade",
+                    "homepage": "https://github.com/openai/codex",
+                    "type": "cli"
+                })
+        except Exception:
+            pass
+
+    # 5. Hermes Agent (`hermes`)
+    hermes_bin = os.path.join(local_bin, "hermes")
+    if os.path.exists(hermes_bin):
+        try:
+            res = subprocess.run([hermes_bin, "--version"], capture_output=True, text=True, timeout=8)
+            out = res.stdout.strip()
+            m = re.search(r'v(\d+\.\d+\.\d+)', out)
+            inst_v = m.group(1) if m else "Installed"
+            if "Update available" in out:
+                late_v = "Update Available"
+                status = "outdated"
+            else:
+                late_v = inst_v
+                status = "up_to_date"
+            tools.append({
+                "name": "Hermes Agent (hermes)",
+                "installed": inst_v,
+                "latest": late_v,
+                "status": status,
+                "source": "NousResearch Git",
+                "install_method": "AI CLI",
+                "update_cmd": "hermes update",
+                "homepage": "https://github.com/NousResearch/hermes-agent",
+                "type": "cli"
+            })
+        except Exception:
+            pass
+
+    # 6. OpenClaw (`openclaw` / `openclaw-safe-update`)
+    openclaw_updater = os.path.join(local_bin, "openclaw-safe-update")
+    openclaw_pkg = "/opt/homebrew/lib/node_modules/openclaw/package.json"
+    if os.path.exists(openclaw_updater) or os.path.exists(openclaw_pkg):
+        try:
+            inst_v = "Installed"
+            if os.path.exists(openclaw_pkg):
+                with open(openclaw_pkg, "r") as f:
+                    inst_v = json.load(f).get("version", "Installed")
+            late_v = inst_v
+            status = "up_to_date"
+            try:
+                req = urllib.request.Request("https://registry.npmjs.org/openclaw/latest", headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                    late_v = json.loads(resp.read().decode()).get("version", inst_v)
+                    if inst_v != "Installed" and late_v != inst_v:
+                        status = "outdated"
+            except Exception:
+                pass
+            tools.append({
+                "name": "OpenClaw Gateway (openclaw)",
+                "installed": inst_v,
+                "latest": late_v,
+                "status": status,
+                "source": "OpenClaw NPM",
+                "install_method": "AI CLI",
+                "update_cmd": "openclaw-safe-update" if os.path.exists(openclaw_updater) else "npm install -g openclaw@latest",
+                "homepage": "https://www.npmjs.com/package/openclaw",
+                "type": "cli"
+            })
+        except Exception:
+            pass
+
+    # 7. Antigravity CLI (`agy`)
+    agy_bin = os.path.join(local_bin, "agy")
+    if os.path.exists(agy_bin):
+        try:
+            res = subprocess.run([agy_bin, "--version"], capture_output=True, text=True, timeout=5)
+            inst_v = res.stdout.strip().splitlines()[0] if res.stdout.strip() else "Installed"
+            tools.append({
+                "name": "Antigravity CLI (agy)",
+                "installed": inst_v,
+                "latest": inst_v,
+                "status": "up_to_date",
+                "source": "Antigravity Bundle",
+                "install_method": "AI CLI",
+                "update_cmd": "open -a Antigravity",
+                "homepage": "https://idx.dev",
+                "type": "cli"
+            })
+        except Exception:
+            pass
+
     return tools
 
 def get_pipx_tools():
@@ -433,7 +701,7 @@ def run_scan():
                 p_late.extend([0] * (max_len - len(p_late)))
                 
                 if p_late > p_inst:
-                    auto_updaters = {'obsidian', 'discord', 'slack', 'notion', 'cursor', 'code', 'spotify', 'figma', 'whatsapp', 'opera', 'antigravity', 'descript', '4k video downloader+', 'codexbar', 'chatgpt', 'claude', 'firefox', 'firefox developer edition'}
+                    auto_updaters = {'obsidian', 'discord', 'slack', 'notion', 'cursor', 'code', 'spotify', 'figma', 'whatsapp', 'opera', 'descript', '4k video downloader+', 'codexbar', 'chatgpt', 'claude', 'firefox', 'firefox developer edition'}
                     if name_clean.lower() in auto_updaters:
                         # Assume the app has auto-updated itself to the latest version
                         installed_ver = latest_ver
@@ -471,10 +739,18 @@ def run_scan():
                 "type": "gui"
             })
             
-    # Also grab CLI tools
-    report_data.extend(get_npm_tools())
-    report_data.extend(get_pipx_tools())
-    report_data.extend(get_brew_formulae())
+    # Pro-Only: Scan CLI tools & AI Agents (NPM, Pipx, uv, Homebrew Formulae, Claude Code, Grok, Meta Muse, Codex, Hermes, OpenClaw, Antigravity)
+    if is_pro_unlocked():
+        cli_items = []
+        cli_items.extend(get_ai_cli_tools())
+        cli_items.extend(get_uv_tools())
+        cli_items.extend(get_npm_tools())
+        cli_items.extend(get_pipx_tools())
+        cli_items.extend(get_brew_formulae())
+        for item in cli_items:
+            if ignored_releases.get(item["name"]) == item["latest"] and item["status"] == "outdated":
+                item["status"] = "ignored"
+        report_data.extend(cli_items)
 
     cached_scan_data = report_data
     last_scan_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
@@ -1222,7 +1498,7 @@ def get_html_content():
         <div style="background: var(--bg-color); border: 1px solid var(--card-border); padding: 2rem; border-radius: 12px; width: 400px; max-width: 90%; text-align: center;">
             <h2 style="margin-top: 0; color: var(--text-primary);">Unlock Pro Features</h2>
             <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem;">
-                App Mechanic is free to scan your apps. To unlock one-click app launching and ignoring updates, please upgrade to Pro.
+                App Mechanic is free to scan your macOS apps. Upgrade to Pro to unlock AI &amp; CLI tool scanning (Claude Code, Grok, Meta Muse, Vibe, OpenClaw, Homebrew, NPM, uv), one-click app launching, and release ignoring.
             </p>
             <input type="text" id="licenseKeyInput" placeholder="Enter Gumroad License Key or Promo Code" style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card-bg); color: white; margin-bottom: 1rem; box-sizing: border-box;">
             <div style="display: flex; gap: 1rem; justify-content: center;">
@@ -1331,7 +1607,8 @@ def get_html_content():
                         let masIdArg = (row.status === 'outdated' && row.mas_id) ? `'${row.mas_id}'` : `null`;
                         actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}', ${masIdArg})">🚀 Launch</button>`;
                     } else if (row.status === 'outdated') {
-                        actionsHtml += `<button class="action-btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateCliApp('${row.name.replace(/'/g, "\\'")}', '${row.install_method}')">⬆️ Update</button>`;
+                        let cmdArg = row.update_cmd ? `'${row.update_cmd.replace(/'/g, "\\'")}'` : `''`;
+                        actionsHtml += `<button class="action-btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateCliApp('${row.name.replace(/'/g, "\\'")}', '${row.install_method}', ${cmdArg})">⬆️ Update</button>`;
                     }
                     if (row.status === 'outdated') {
                         actionsHtml += `<button class="action-btn" onclick="ignoreRelease('${row.name.replace(/'/g, "\\'")}', '${row.latest}')">🚫 Ignore</button>`;
@@ -1375,10 +1652,14 @@ def get_html_content():
                     installBg = 'rgba(244, 63, 94, 0.1)';
                     installColor = 'var(--accent-red)';
                     installBorder = 'rgba(244, 63, 94, 0.2)';
-                } else if (row.install_method === 'Pipx') {
+                } else if (row.install_method === 'Pipx' || row.install_method === 'uv') {
                     installBg = 'rgba(234, 179, 8, 0.1)';
                     installColor = '#eab308';
                     installBorder = 'rgba(234, 179, 8, 0.2)';
+                } else if (row.install_method === 'AI CLI') {
+                    installBg = 'rgba(139, 92, 246, 0.15)';
+                    installColor = '#c4b5fd';
+                    installBorder = 'rgba(139, 92, 246, 0.35)';
                 }
 
                 const tr = document.createElement('tr');
@@ -1488,8 +1769,8 @@ def get_html_content():
                 });
         }
 
-        function updateCliApp(appName, method) {
-            let url = `/api/update_cli?app=${encodeURIComponent(appName)}&method=${encodeURIComponent(method)}`;
+        function updateCliApp(appName, method, customCmd = '') {
+            let url = `/api/update_cli?app=${encodeURIComponent(appName)}&method=${encodeURIComponent(method)}&cmd=${encodeURIComponent(customCmd)}`;
             fetch(url)
                 .then(res => res.json())
                 .then(res => {
@@ -1721,14 +2002,19 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             query_components = parse_qs(urlparse(self.path).query)
             app_name = query_components.get('app', [''])[0]
             install_method = query_components.get('method', [''])[0]
+            custom_cmd = query_components.get('cmd', [''])[0]
             if app_name and install_method:
                 cmd = ""
                 if install_method == "NPM":
                     cmd = f"npm install -g {app_name}"
                 elif install_method == "Pipx":
                     cmd = f"pipx upgrade {app_name}"
+                elif install_method == "uv":
+                    cmd = f"uv tool upgrade {app_name}"
                 elif install_method == "Homebrew CLI":
                     cmd = f"brew upgrade {app_name}"
+                elif install_method == "AI CLI" and custom_cmd:
+                    cmd = custom_cmd
                 
                 if cmd:
                     try:
@@ -1843,6 +2129,7 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             if key == "BETA-TEST-2026":
                 with open(LICENSE_FILE, 'w') as f:
                     json.dump({"valid": True, "key": key}, f)
+                run_scan()
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -1865,6 +2152,7 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                             # Valid!
                             with open(LICENSE_FILE, 'w') as f:
                                 json.dump({"valid": True, "key": key}, f)
+                            run_scan()
                             self.send_response(200)
                             self.send_header('Content-type', 'application/json')
                             self.end_headers()
