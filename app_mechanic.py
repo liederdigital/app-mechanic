@@ -25,7 +25,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.1"
+APP_VERSION = "0.6.2"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -873,6 +873,23 @@ def run_scan():
                 ignored_releases = json.load(f)
         except Exception:
             pass
+
+    false_alarms_file = os.path.join(HISTORY_DIR, "false_alarms.json")
+    false_alarms = {}
+    if os.path.exists(false_alarms_file):
+        try:
+            with open(false_alarms_file, 'r') as f:
+                false_alarms = json.load(f)
+        except Exception:
+            pass
+
+    def is_marked_false_alarm(app_name, installed_v):
+        entry = false_alarms.get(app_name)
+        if not entry:
+            return False
+        if isinstance(entry, dict):
+            return entry.get("installed") == installed_v or not entry.get("installed")
+        return True
             
     app_to_latest = {}
     
@@ -942,7 +959,9 @@ def run_scan():
         if name_clean.lower() in mas_outdated:
             mas_info = mas_outdated[name_clean.lower()]
             status = "outdated"
-            if ignored_releases.get(name_clean) == mas_info["latest"]:
+            if is_marked_false_alarm(name_clean, mas_info["installed"]):
+                status = "false_alarm"
+            elif ignored_releases.get(name_clean) == mas_info["latest"]:
                 status = "ignored"
             
             report_data.append({
@@ -994,7 +1013,9 @@ def run_scan():
                         status = "up_to_date"
                     else:
                         status = "outdated"
-                        if ignored_releases.get(name_clean) == latest_ver:
+                        if is_marked_false_alarm(name_clean, installed_ver):
+                            status = "false_alarm"
+                        elif ignored_releases.get(name_clean) == latest_ver:
                             status = "ignored"
                 else:
                     status = "up_to_date"
@@ -1042,8 +1063,11 @@ def run_scan():
                 cli_items.extend([t])
         cli_items.extend(get_brew_formulae())
         for item in cli_items:
-            if ignored_releases.get(item["name"]) == item["latest"] and item["status"] == "outdated":
-                item["status"] = "ignored"
+            if item["status"] == "outdated":
+                if is_marked_false_alarm(item["name"], item["installed"]):
+                    item["status"] = "false_alarm"
+                elif ignored_releases.get(item["name"]) == item["latest"]:
+                    item["status"] = "ignored"
         report_data.extend(cli_items)
 
     cached_scan_data = report_data
@@ -1052,8 +1076,9 @@ def run_scan():
     total = len(report_data)
     outdated = sum(1 for x in report_data if x["status"] == "outdated")
     ignored = sum(1 for x in report_data if x["status"] == "ignored")
-    up_to_date = total - outdated - ignored
-    healthy = up_to_date + ignored
+    false_alarm_count = sum(1 for x in report_data if x["status"] == "false_alarm")
+    up_to_date = total - outdated - ignored - false_alarm_count
+    healthy = up_to_date + ignored + false_alarm_count
     pct = round((healthy / total) * 100, 1) if total > 0 else 0
     
     save_history({
@@ -1061,7 +1086,7 @@ def run_scan():
         "percentage": pct,
         "up_to_date_count": up_to_date,
         "outdated_count": outdated,
-        "ignored_count": ignored
+        "ignored_count": ignored + false_alarm_count
     })
     
     return report_data
@@ -1085,8 +1110,9 @@ def get_html_content():
     total = len(cached_scan_data)
     outdated = sum(1 for x in cached_scan_data if x["status"] == "outdated")
     ignored = sum(1 for x in cached_scan_data if x["status"] == "ignored")
-    up_to_date = total - outdated - ignored
-    healthy = up_to_date + ignored
+    false_alarm_count = sum(1 for x in cached_scan_data if x["status"] == "false_alarm")
+    up_to_date = total - outdated - ignored - false_alarm_count
+    healthy = up_to_date + ignored + false_alarm_count
     pct = round((healthy / total) * 100, 1) if total > 0 else 0
     stroke_offset = 226 - (226 * pct / 100)
     mac_os_version = platform.mac_ver()[0]
@@ -1531,6 +1557,12 @@ def get_html_content():
             color: #eab308;
         }
 
+        .status-false_alarm {
+            background: rgba(168, 85, 247, 0.16);
+            color: #c084fc;
+            border: 1px solid rgba(168, 85, 247, 0.35);
+        }
+
         .status-outdated {
             background: var(--accent-red-glow);
             color: var(--accent-red);
@@ -1758,6 +1790,7 @@ def get_html_content():
                     <button class="btn" id="btnOutdated" onclick="filterApps('outdated')">Outdated</button>
                     <button class="btn" id="btnUpToDate" onclick="filterApps('up_to_date')">Up to Date</button>
                     <button class="btn" id="btnIgnored" onclick="filterApps('ignored')">Ignored</button>
+                    <button class="btn" id="btnFalseAlarm" onclick="filterApps('false_alarm')">False Alarms</button>
                 </div>
             </div>
 
@@ -1805,6 +1838,30 @@ def get_html_content():
         </div>
     </div>
 
+    <!-- False Alarm & Inaccuracy Report Modal -->
+    <div id="falseAlarmModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(6px);">
+        <div style="background: var(--bg-color); border: 1px solid rgba(168, 85, 247, 0.35); padding: 2rem; border-radius: 16px; width: 480px; max-width: 92%; text-align: left; box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
+            <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem;">
+                <span style="font-size: 1.4rem;">🚩</span>
+                <h2 style="margin: 0; color: var(--text-primary); font-size: 1.3rem;">Marked as False Alarm</h2>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.88rem; line-height: 1.5;">
+                <strong id="faModalAppName" style="color: var(--text-primary);">App</strong> is now flagged locally as a <strong>False Alarm</strong> and counted as healthy in your system score (even if the upstream catalog bumps versions again). Want to send these mismatch details so we can refine the scanner?
+            </p>
+            <pre id="faDiagnosticBox" style="background: rgba(15, 23, 42, 0.85); border: 1px solid var(--card-border); border-radius: 10px; padding: 0.85rem 1rem; color: #cbd5e1; font-family: monospace; font-size: 0.78rem; line-height: 1.55; overflow-x: auto; margin-bottom: 1.25rem; white-space: pre-wrap;"></pre>
+            <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                <div style="display: flex; gap: 0.6rem;">
+                    <a id="faGithubBtn" href="#" target="_blank" class="btn" style="flex: 1; text-align: center; text-decoration: none; background: rgba(168, 85, 247, 0.18); border-color: rgba(168, 85, 247, 0.45); color: #e9d5ff; font-weight: 600;">🐙 Report on GitHub</a>
+                    <a id="faEmailBtn" href="#" class="btn" style="flex: 1; text-align: center; text-decoration: none; background: rgba(59, 130, 246, 0.18); border-color: rgba(59, 130, 246, 0.45); color: #bfdbfe; font-weight: 600;">✉️ Report via Email</a>
+                </div>
+                <div style="display: flex; gap: 0.6rem;">
+                    <button onclick="copyFalseAlarmDiag(this)" class="btn" style="flex: 1;">📋 Copy Diagnostics</button>
+                    <button onclick="document.getElementById('falseAlarmModal').style.display='none'" class="btn" style="flex: 1; background: rgba(255,255,255,0.08); color: white;">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const isProUnlocked = {{IS_PRO_UNLOCKED}};
         let currentFilter = 'all';
@@ -1847,8 +1904,9 @@ def get_html_content():
             const total = data.length;
             const outdated = data.filter(x => x.status === 'outdated').length;
             const ignored = data.filter(x => x.status === 'ignored').length;
-            const upToDate = total - outdated - ignored;
-            const healthy = upToDate + ignored;
+            const falseAlarms = data.filter(x => x.status === 'false_alarm').length;
+            const upToDate = total - outdated - ignored - falseAlarms;
+            const healthy = upToDate + ignored + falseAlarms;
             const pct = total > 0 ? Math.round((healthy / total) * 1000) / 10 : 0;
 
             // Update stats labels
@@ -1857,7 +1915,7 @@ def get_html_content():
             document.getElementById('lblUpToDateCount').textContent = upToDate;
             document.getElementById('lblOutdatedCount').textContent = outdated;
             const lblIgnored = document.getElementById('lblIgnoredCount');
-            if (lblIgnored) lblIgnored.textContent = ignored;
+            if (lblIgnored) lblIgnored.textContent = ignored + falseAlarms;
 
             // Update filter button labels
             document.getElementById('btnAll').textContent = `All Apps (${total})`;
@@ -1865,6 +1923,8 @@ def get_html_content():
             document.getElementById('btnUpToDate').textContent = `Up to Date (${upToDate})`;
             const btnIgnored = document.getElementById('btnIgnored');
             if (btnIgnored) btnIgnored.textContent = `Ignored (${ignored})`;
+            const btnFalseAlarm = document.getElementById('btnFalseAlarm');
+            if (btnFalseAlarm) btnFalseAlarm.textContent = `False Alarms (${falseAlarms})`;
 
             // Update progress ring stroke dashoffset
             const circle = document.getElementById('progressRingCircle');
@@ -1893,21 +1953,34 @@ def get_html_content():
                 } else if (row.status === 'ignored') {
                     statusLabel = 'Ignored';
                     statusEmoji = '🟡';
+                } else if (row.status === 'false_alarm') {
+                    statusLabel = 'False Alarm';
+                    statusEmoji = '🚩';
                 }
                 
+                const escName = row.name.replace(/'/g, "\\'");
+                const escInst = (row.installed || '').replace(/'/g, "\\'");
+                const escLate = (row.latest || '').replace(/'/g, "\\'");
+                const escSrc = (row.source || '').replace(/'/g, "\\'");
+                const escMeth = (row.install_method || '').replace(/'/g, "\\'");
+
                 let actionsHtml = `<div class="action-cell">`;
                 if (isProUnlocked) {
                     if (row.type !== 'cli') {
                         let masIdArg = (row.status === 'outdated' && row.mas_id) ? `'${row.mas_id}'` : `null`;
-                        actionsHtml += `<button class="action-btn" onclick="launchApp('${row.name.replace(/'/g, "\\'")}', ${masIdArg})">🚀 Launch</button>`;
+                        actionsHtml += `<button class="action-btn" onclick="launchApp('${escName}', ${masIdArg})">🚀 Launch</button>`;
                     } else if (row.status === 'outdated') {
                         let cmdArg = row.update_cmd ? `'${row.update_cmd.replace(/'/g, "\\'")}'` : `''`;
-                        actionsHtml += `<button class="action-btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateCliApp('${row.name.replace(/'/g, "\\'")}', '${row.install_method}', ${cmdArg})">⬆️ Update</button>`;
+                        actionsHtml += `<button class="action-btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateCliApp('${escName}', '${escMeth}', ${cmdArg})">⬆️ Update</button>`;
                     }
                     if (row.status === 'outdated') {
-                        actionsHtml += `<button class="action-btn" onclick="ignoreRelease('${row.name.replace(/'/g, "\\'")}', '${row.latest}')">🚫 Ignore</button>`;
+                        actionsHtml += `<button class="action-btn" onclick="ignoreRelease('${escName}', '${escLate}')">🚫 Ignore</button>`;
+                        actionsHtml += `<button class="action-btn" style="border-color: rgba(168, 85, 247, 0.4); color: #c084fc;" title="Flag this update alert as inaccurate / false positive" onclick="flagFalseAlarm('${escName}', '${escInst}', '${escLate}', '${escSrc}', '${escMeth}')">🚩 False Alarm</button>`;
                     } else if (row.status === 'ignored') {
-                        actionsHtml += `<button class="action-btn" onclick="unignoreRelease('${row.name.replace(/'/g, "\\'")}')">↩️ Unignore</button>`;
+                        actionsHtml += `<button class="action-btn" onclick="unignoreRelease('${escName}')">↩️ Unignore</button>`;
+                    } else if (row.status === 'false_alarm') {
+                        actionsHtml += `<button class="action-btn" style="border-color: rgba(168, 85, 247, 0.4); color: #c084fc;" onclick="openFalseAlarmReportModal('${escName}', '${escInst}', '${escLate}', '${escSrc}', '${escMeth}')">📣 Report</button>`;
+                        actionsHtml += `<button class="action-btn" onclick="unflagFalseAlarm('${escName}')">↩️ Unflag</button>`;
                     }
                 } else {
                     actionsHtml += `<button class="action-btn" onclick="document.getElementById('unlockModal').style.display='flex'">🔒 Unlock Pro</button>`;
@@ -2044,6 +2117,88 @@ def get_html_content():
                 });
         }
 
+        function openFalseAlarmReportModal(appName, installedVer, latestVer, source, method) {
+            document.getElementById('faModalAppName').textContent = appName;
+            const diagLines = [
+                `App / Tool:       ${appName}`,
+                `Installed:        ${installedVer}`,
+                `Reported Latest:  ${latestVer}`,
+                `Catalog Source:   ${source}`,
+                `Install Method:   ${method}`,
+                `macOS Version:    {{MAC_OS}}`,
+                `App Mechanic:     v{{APP_VERSION}}`
+            ];
+            const diagText = diagLines.join('\\n');
+            document.getElementById('faDiagnosticBox').textContent = diagText;
+
+            const ghTitle = `[False Alarm] ${appName}: Installed ${installedVer} flagged as ${latestVer} (${source})`;
+            const ghLines = [
+                '### False Alarm / Catalog Mismatch Report',
+                '',
+                '| Field | Value |',
+                '| :--- | :--- |',
+                `| **Application / Tool** | ${appName} |`,
+                `| **Installed Version** | ${installedVer} |`,
+                `| **Reported Latest Version** | ${latestVer} |`,
+                `| **Catalog Source** | ${source} |`,
+                `| **Install Method** | ${method} |`,
+                '| **macOS Version** | {{MAC_OS}} |',
+                '| **App Mechanic Version** | v{{APP_VERSION}} |',
+                '',
+                '**Additional Context (optional):**',
+                `The app reports itself as up to date at version ${installedVer}.`
+            ];
+            const ghBody = ghLines.join('\\n');
+            document.getElementById('faGithubBtn').href = `https://github.com/liederdigital/app-mechanic/issues/new?title=${encodeURIComponent(ghTitle)}&body=${encodeURIComponent(ghBody)}`;
+
+            const emailSubject = `App Mechanic False Alarm: ${appName} (${installedVer} -> ${latestVer})`;
+            const emailBody = ['Hi Lieder Digital team,', '', `App Mechanic flagged an inaccurate update for ${appName}:`, '', diagText, '', 'Notes:'].join('\\n');
+            document.getElementById('faEmailBtn').href = `mailto:appsupport@liederdigital.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+
+            document.getElementById('falseAlarmModal').style.display = 'flex';
+        }
+
+        function copyFalseAlarmDiag(btn) {
+            const text = document.getElementById('faDiagnosticBox').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 1600);
+            });
+        }
+
+        function flagFalseAlarm(appName, installedVer, latestVer, source, method) {
+            const url = `/api/false_alarm?app=${encodeURIComponent(appName)}&installed=${encodeURIComponent(installedVer)}&latest=${encodeURIComponent(latestVer)}&source=${encodeURIComponent(source)}&method=${encodeURIComponent(method)}`;
+            fetch(url)
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        openFalseAlarmReportModal(appName, installedVer, latestVer, source, method);
+                        triggerRefresh();
+                    } else {
+                        alert('Failed to flag false alarm: ' + res.message);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to flag false alarm:', err);
+                });
+        }
+
+        function unflagFalseAlarm(appName) {
+            fetch(`/api/unflag_false_alarm?app=${encodeURIComponent(appName)}`)
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        triggerRefresh();
+                    } else {
+                        alert('Failed to unflag: ' + res.message);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to unflag:', err);
+                });
+        }
+
         function launchApp(appName, masId = null) {
             let url = '/api/launch?app=' + encodeURIComponent(appName);
             if (masId) {
@@ -2123,6 +2278,7 @@ def get_html_content():
             if (filterType === 'outdated') document.getElementById('btnOutdated').classList.add('active');
             if (filterType === 'up_to_date') document.getElementById('btnUpToDate').classList.add('active');
             if (filterType === 'ignored') document.getElementById('btnIgnored').classList.add('active');
+            if (filterType === 'false_alarm' && document.getElementById('btnFalseAlarm')) document.getElementById('btnFalseAlarm').classList.add('active');
 
             filterRows();
         }
@@ -2394,6 +2550,87 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                         del ignored[app_name]
                         with open(ignore_file, 'w') as f:
                             json.dump(ignored, f)
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Missing parameters"}).encode('utf-8'))
+        elif self.path.startswith('/api/false_alarm'):
+            if not is_pro_unlocked():
+                self.send_response(403)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Pro license required"}).encode('utf-8'))
+                return
+            from urllib.parse import urlparse, parse_qs
+            query_components = parse_qs(urlparse(self.path).query)
+            app_name = query_components.get('app', [''])[0]
+            installed_v = query_components.get('installed', [''])[0]
+            latest_v = query_components.get('latest', [''])[0]
+            source = query_components.get('source', [''])[0]
+            method = query_components.get('method', [''])[0]
+            if app_name:
+                try:
+                    if not os.path.exists(HISTORY_DIR):
+                        os.makedirs(HISTORY_DIR)
+                    fa_file = os.path.join(HISTORY_DIR, "false_alarms.json")
+                    fa_data = {}
+                    if os.path.exists(fa_file):
+                        with open(fa_file, 'r') as f:
+                            fa_data = json.load(f)
+                    fa_data[app_name] = {
+                        "installed": installed_v,
+                        "reported_latest": latest_v,
+                        "source": source,
+                        "install_method": method,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    with open(fa_file, 'w') as f:
+                        json.dump(fa_data, f, indent=2)
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Missing parameters"}).encode('utf-8'))
+        elif self.path.startswith('/api/unflag_false_alarm'):
+            if not is_pro_unlocked():
+                self.send_response(403)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Pro license required"}).encode('utf-8'))
+                return
+            from urllib.parse import urlparse, parse_qs
+            query_components = parse_qs(urlparse(self.path).query)
+            app_name = query_components.get('app', [''])[0]
+            if app_name:
+                try:
+                    fa_file = os.path.join(HISTORY_DIR, "false_alarms.json")
+                    fa_data = {}
+                    if os.path.exists(fa_file):
+                        with open(fa_file, 'r') as f:
+                            fa_data = json.load(f)
+                    if app_name in fa_data:
+                        del fa_data[app_name]
+                        with open(fa_file, 'w') as f:
+                            json.dump(fa_data, f, indent=2)
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()

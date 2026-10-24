@@ -27,7 +27,7 @@ let demoApps = [
         status: "outdated",
         source: "Meta AI Channel",
         install_method: "AI CLI",
-        update_cmd: "muse",
+        update_cmd: "MUSE_SYNC_UPDATE=1 muse --version",
         type: "cli"
     },
     {
@@ -80,8 +80,8 @@ let demoApps = [
     },
     {
         name: "App Mechanic",
-        installed: "0.6.0",
-        latest: "0.6.0",
+        installed: "0.6.2",
+        latest: "0.6.2",
         status: "up_to_date",
         source: "Native / OS",
         install_method: "Manual / OS",
@@ -165,20 +165,21 @@ function updateSimStats() {
     const total = activeSet.length;
     const outdated = activeSet.filter(a => a.status === 'outdated').length;
     const ignored = activeSet.filter(a => a.status === 'ignored').length;
-    const upToDate = total - outdated - ignored;
-    const healthy = upToDate + ignored;
+    const falseAlarms = activeSet.filter(a => a.status === 'false_alarm').length;
+    const upToDate = total - outdated - ignored - falseAlarms;
+    const healthy = upToDate + ignored + falseAlarms;
     const pct = total > 0 ? Math.round((healthy / total) * 1000) / 10 : 0;
 
     document.getElementById('simPctVal').textContent = pct + '%';
     document.getElementById('simRingLabel').textContent = Math.round(pct) + '%';
     document.getElementById('simUpToDateVal').textContent = upToDate;
     document.getElementById('simOutdatedVal').textContent = outdated;
-    document.getElementById('simIgnoredVal').textContent = ignored;
+    document.getElementById('simIgnoredVal').textContent = ignored + falseAlarms;
 
     document.getElementById('simFilterAll').textContent = `All Apps (${total})`;
     document.getElementById('simFilterOutdated').textContent = `Outdated (${outdated})`;
     document.getElementById('simFilterUp').textContent = `Up to Date (${upToDate})`;
-    document.getElementById('simFilterIgnored').textContent = `Ignored (${ignored})`;
+    document.getElementById('simFilterIgnored').textContent = `Ignored (${ignored + falseAlarms})`;
 
     const circle = document.getElementById('simRingCircle');
     if (circle) {
@@ -216,6 +217,9 @@ function renderSimulatedTable() {
         } else if (app.status === 'ignored') {
             emoji = '🟡';
             statusText = 'Ignored';
+        } else if (app.status === 'false_alarm') {
+            emoji = '🚩';
+            statusText = 'False Alarm';
         }
 
         const versionHtml = app.status === 'outdated'
@@ -231,8 +235,9 @@ function renderSimulatedTable() {
             }
             if (app.status === 'outdated') {
                 actionsHtml += `<button class="sim-action-btn" onclick="simIgnoreApp('${app.name}')">🚫 Ignore</button>`;
-            } else if (app.status === 'ignored') {
-                actionsHtml += `<button class="sim-action-btn" onclick="simUnignoreApp('${app.name}')">↩️ Unignore</button>`;
+                actionsHtml += `<button class="sim-action-btn" style="border-color: rgba(168, 85, 247, 0.4); color: #c084fc;" onclick="simFlagFalseAlarm('${app.name}')">🚩 False Alarm</button>`;
+            } else if (app.status === 'ignored' || app.status === 'false_alarm') {
+                actionsHtml += `<button class="sim-action-btn" onclick="simUnignoreApp('${app.name}')">↩️ Unflag</button>`;
             }
         } else {
             actionsHtml = `<button class="sim-action-btn" onclick="simPromptPro()">🔒 Unlock Pro</button>`;
@@ -284,6 +289,14 @@ function simIgnoreApp(name) {
     app.status = 'ignored';
     renderSimulatedTable();
     showSimToast(`🚫 Ignored ${name} v${app.latest} — Health score updated!`);
+}
+
+function simFlagFalseAlarm(name) {
+    const app = demoApps.find(a => a.name === name);
+    if (!app) return;
+    app.status = 'false_alarm';
+    renderSimulatedTable();
+    showSimToast(`🚩 Marked ${name} (${app.installed} vs ${app.latest}) as False Alarm & opened 1-click mismatch report!`);
 }
 
 function simUnignoreApp(name) {
