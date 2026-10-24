@@ -4,6 +4,8 @@
 
 App Mechanic is a sleek, zero-dependency macOS utility written in pure Python that scans your installed applications and compares their versions against Homebrew Casks and the Mac App Store to see if they need updating. 
 
+🌐 **Website & Live Interactive Demo:** [https://appmechanic.dev](https://appmechanic.dev)
+
 It serves a beautiful, glassmorphic dark-mode dashboard directly on your local machine so you can see the status of all your apps at a glance.
 
 ## Prerequisites & Dependencies
@@ -38,3 +40,5 @@ If you close the browser tab, the background server continues to run. If you dou
 This software is provided under the **MIT License** by Lieder Digital, LLC.
 
 **WARNING:** This software comes with **ABSOLUTELY NO WARRANTIES WHATSOEVER**. While it definitely won't break your computer or delete your emails and passwords, Lieder Digital, LLC is not responsible if it accidentally leaves the back door open and your dog runs away from home. Use at your own risk! See the `LICENSE` file for more details.
+
+Build provenance and AI/tool attribution are documented in [CREDITS.md](CREDITS.md).

@@ -1212,7 +1212,7 @@ def get_html_content():
         <footer style="margin-top: 3rem; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.5rem; display: flex; justify-content: center; text-align: center; color: var(--text-secondary); font-size: 0.8rem; padding-bottom: 2rem;">
             <div style="line-height: 1.8;">
                 © 2026 Lieder Digital, LLC. All rights reserved. <br>
-                <a href="https://liederdigital.com/apps/app-mechanic?utm_source=app_mechanic_macos&utm_medium=desktop_app&utm_campaign=footer_link" target="_blank" style="color: inherit; text-decoration: underline;">App Mechanic</a> v{{APP_VERSION}} <span id="app-update-notice" style="display: none; color: var(--accent-red); margin-left: 0.5rem; font-weight: 500;">(Update Available! <a id="app-update-link" href="#" target="_blank" style="color: var(--accent-red); text-decoration: underline;">Download</a>)</span>
+                <a href="https://appmechanic.dev?utm_source=app_mechanic_macos&utm_medium=desktop_app&utm_campaign=footer_link" target="_blank" style="color: inherit; text-decoration: underline;">App Mechanic</a> v{{APP_VERSION}} <span id="app-update-notice" style="display: none; color: var(--accent-red); margin-left: 0.5rem; font-weight: 500;">(Update Available! <a id="app-update-link" href="#" target="_blank" style="color: var(--accent-red); text-decoration: underline;">Download</a>)</span>
             </div>
         </footer>
     </div>
