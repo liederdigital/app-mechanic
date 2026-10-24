@@ -267,49 +267,54 @@ def get_uv_tools():
     return tools
 
 def get_ai_cli_tools():
-    print("Checking AI & Standalone CLI tools...")
+    print("Checking AI & Vibe-Coding CLI tools...")
     tools = []
+    seen_bins = set()
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     local_bin = os.path.expanduser("~/.local/bin")
+    import shutil
 
-    # 1. Claude Code (`claude`)
-    claude_bin = os.path.join(local_bin, "claude")
-    if os.path.exists(claude_bin):
-        try:
-            res = subprocess.run([claude_bin, "--version"], capture_output=True, text=True, timeout=5)
-            m = re.search(r'(\d+\.\d+\.\d+)', res.stdout)
-            if m:
-                inst_v = m.group(1)
-                late_v = inst_v
-                status = "up_to_date"
-                try:
-                    req = urllib.request.Request("https://registry.npmjs.org/@anthropic-ai/claude-code/latest", headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
-                        late_v = json.loads(resp.read().decode()).get("version", inst_v)
-                        p_inst, p_late = parse_version(inst_v), parse_version(late_v)
-                        if p_inst and p_late and p_late > p_inst:
-                            status = "outdated"
-                except Exception:
-                    pass
-                tools.append({
-                    "name": "Claude Code (claude)",
-                    "installed": inst_v,
-                    "latest": late_v,
-                    "status": status,
-                    "source": "Anthropic CLI",
-                    "install_method": "AI CLI",
-                    "update_cmd": "claude update",
-                    "homepage": "https://docs.anthropic.com/en/docs/claude-code",
-                    "type": "cli"
-                })
-        except Exception:
-            pass
+    def find_cli_bin(bin_names):
+        if isinstance(bin_names, str):
+            bin_names = [bin_names]
+        search_dirs = [
+            local_bin,
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            os.path.expanduser("~/.bun/bin"),
+            os.path.expanduser("~/.cargo/bin"),
+            os.path.expanduser("~/go/bin"),
+            os.path.expanduser("~/.opencode/bin"),
+            os.path.expanduser("~/.amp/bin"),
+            os.path.expanduser("~/.kimi/bin"),
+        ]
+        for bname in bin_names:
+            for d in search_dirs:
+                cand = os.path.join(d, bname)
+                if os.path.exists(cand) and os.access(cand, os.X_OK):
+                    return bname, cand
+            w = shutil.which(bname)
+            if w:
+                return bname, w
+        return None, None
 
-    # 2. Grok CLI (`grok`)
-    grok_bin = os.path.join(local_bin, "grok")
-    if os.path.exists(grok_bin):
+    def version_is_newer(inst_str, late_str):
+        if not inst_str or not late_str or inst_str == late_str:
+            return False
+        p_inst, p_late = parse_version(inst_str), parse_version(late_str)
+        if p_inst and p_late:
+            max_len = max(len(p_inst), len(p_late))
+            p_inst.extend([0] * (max_len - len(p_inst)))
+            p_late.extend([0] * (max_len - len(p_late)))
+            return p_late > p_inst
+        return late_str != inst_str
+
+    # 1. Grok Build / CLI (`grok`) — uses native `grok update --check --json`
+    _, grok_bin = find_cli_bin("grok")
+    if grok_bin:
+        seen_bins.add("grok")
         try:
             res = subprocess.run([grok_bin, "update", "--check", "--json"], capture_output=True, text=True, timeout=8)
             if res.returncode == 0 and res.stdout.strip():
@@ -331,10 +336,11 @@ def get_ai_cli_tools():
         except Exception:
             pass
 
-    # 3. Meta Muse (`muse`)
-    muse_bin = os.path.join(local_bin, "muse")
+    # 2. Meta Muse (`muse`) — uses `.muse-version` and `api.meta.ai/muse-code/channels/muse-stable`
+    _, muse_bin = find_cli_bin("muse")
     muse_ver_file = os.path.join(local_bin, ".muse-version")
-    if os.path.exists(muse_bin) and os.path.exists(muse_ver_file):
+    if muse_bin and os.path.exists(muse_ver_file):
+        seen_bins.add("muse")
         try:
             with open(muse_ver_file, "r") as f:
                 inst_v = f.read().strip()
@@ -363,42 +369,43 @@ def get_ai_cli_tools():
         except Exception:
             pass
 
-    # 4. OpenAI Codex (`codex`)
-    codex_bin = os.path.join(local_bin, "codex")
-    if os.path.exists(codex_bin):
+    # 3. Herdr (`herdr`) — checks `https://herdr.dev/latest.json`
+    _, herdr_bin = find_cli_bin("herdr")
+    if herdr_bin:
+        seen_bins.add("herdr")
         try:
-            res = subprocess.run([codex_bin, "--version"], capture_output=True, text=True, timeout=5)
+            res = subprocess.run([herdr_bin, "--version"], capture_output=True, text=True, timeout=5)
             m = re.search(r'(\d+\.\d+\.\d+)', res.stdout)
-            if m:
-                inst_v = m.group(1)
-                late_v = inst_v
-                status = "up_to_date"
-                try:
-                    req = urllib.request.Request("https://registry.npmjs.org/@openai/codex/latest", headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
-                        late_v = json.loads(resp.read().decode()).get("version", inst_v)
-                        p_inst, p_late = parse_version(inst_v), parse_version(late_v)
-                        if p_inst and p_late and p_late > p_inst:
-                            status = "outdated"
-                except Exception:
-                    pass
-                tools.append({
-                    "name": "OpenAI Codex (codex)",
-                    "installed": inst_v,
-                    "latest": late_v,
-                    "status": status,
-                    "source": "OpenAI CLI",
-                    "install_method": "AI CLI",
-                    "update_cmd": "codex --upgrade",
-                    "homepage": "https://github.com/openai/codex",
-                    "type": "cli"
-                })
+            inst_v = m.group(1) if m else "Installed"
+            late_v = inst_v
+            status = "up_to_date"
+            try:
+                req = urllib.request.Request("https://herdr.dev/latest.json", headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                    hdata = json.loads(resp.read().decode())
+                    late_v = hdata.get("version", inst_v)
+                    if version_is_newer(inst_v, late_v):
+                        status = "outdated"
+            except Exception:
+                pass
+            tools.append({
+                "name": "Herdr Agent Workspace (herdr)",
+                "installed": inst_v,
+                "latest": late_v,
+                "status": status,
+                "source": "herdr.dev Manifest",
+                "install_method": "AI CLI",
+                "update_cmd": "herdr update",
+                "homepage": "https://herdr.dev",
+                "type": "cli"
+            })
         except Exception:
             pass
 
-    # 5. Hermes Agent (`hermes`)
-    hermes_bin = os.path.join(local_bin, "hermes")
-    if os.path.exists(hermes_bin):
+    # 4. Hermes Agent (`hermes`) — checks `hermes --version` upstream git state
+    _, hermes_bin = find_cli_bin("hermes")
+    if hermes_bin:
+        seen_bins.add("hermes")
         try:
             res = subprocess.run([hermes_bin, "--version"], capture_output=True, text=True, timeout=8)
             out = res.stdout.strip()
@@ -424,22 +431,29 @@ def get_ai_cli_tools():
         except Exception:
             pass
 
-    # 6. OpenClaw (`openclaw` / `openclaw-safe-update`)
+    # 5. OpenClaw (`openclaw` / `openclaw-safe-update`)
     openclaw_updater = os.path.join(local_bin, "openclaw-safe-update")
     openclaw_pkg = "/opt/homebrew/lib/node_modules/openclaw/package.json"
-    if os.path.exists(openclaw_updater) or os.path.exists(openclaw_pkg):
+    _, openclaw_bin = find_cli_bin("openclaw")
+    if os.path.exists(openclaw_updater) or os.path.exists(openclaw_pkg) or openclaw_bin:
+        seen_bins.add("openclaw")
         try:
             inst_v = "Installed"
             if os.path.exists(openclaw_pkg):
                 with open(openclaw_pkg, "r") as f:
                     inst_v = json.load(f).get("version", "Installed")
+            elif openclaw_bin:
+                res = subprocess.run([openclaw_bin, "--version"], capture_output=True, text=True, timeout=5)
+                m = re.search(r'(\d+\.\d+\.\d+)', res.stdout)
+                if m:
+                    inst_v = m.group(1)
             late_v = inst_v
             status = "up_to_date"
             try:
                 req = urllib.request.Request("https://registry.npmjs.org/openclaw/latest", headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
                     late_v = json.loads(resp.read().decode()).get("version", inst_v)
-                    if inst_v != "Installed" and late_v != inst_v:
+                    if inst_v != "Installed" and version_is_newer(inst_v, late_v):
                         status = "outdated"
             except Exception:
                 pass
@@ -457,9 +471,10 @@ def get_ai_cli_tools():
         except Exception:
             pass
 
-    # 7. Antigravity CLI (`agy`)
-    agy_bin = os.path.join(local_bin, "agy")
-    if os.path.exists(agy_bin):
+    # 6. Antigravity CLI (`agy`)
+    _, agy_bin = find_cli_bin("agy")
+    if agy_bin:
+        seen_bins.add("agy")
         try:
             res = subprocess.run([agy_bin, "--version"], capture_output=True, text=True, timeout=5)
             inst_v = res.stdout.strip().splitlines()[0] if res.stdout.strip() else "Installed"
@@ -472,6 +487,277 @@ def get_ai_cli_tools():
                 "install_method": "AI CLI",
                 "update_cmd": "open -a Antigravity",
                 "homepage": "https://idx.dev",
+                "type": "cli"
+            })
+        except Exception:
+            pass
+
+    # 7. Comprehensive Registry Catalog of Major AI & Vibe-Coding CLIs
+    # (Aligned with the Herdr Agent-Detection Catalog + NPM/PyPI/GitHub Releases)
+    CATALOG = [
+        {
+            "bins": ["claude"],
+            "display": "Claude Code (claude)",
+            "kind": "npm",
+            "target": "@anthropic-ai/claude-code",
+            "source": "Anthropic CLI",
+            "update_cmd": "claude update",
+            "homepage": "https://docs.anthropic.com/en/docs/claude-code"
+        },
+        {
+            "bins": ["codex"],
+            "display": "OpenAI Codex (codex)",
+            "kind": "npm",
+            "target": "@openai/codex",
+            "source": "OpenAI CLI",
+            "update_cmd": "codex --upgrade",
+            "homepage": "https://github.com/openai/codex"
+        },
+        {
+            "bins": ["gemini"],
+            "display": "Google Gemini CLI (gemini)",
+            "kind": "npm",
+            "target": "@google/gemini-cli",
+            "source": "Google Gemini NPM",
+            "update_cmd": "npm install -g @google/gemini-cli@latest",
+            "homepage": "https://github.com/google-gemini/gemini-cli"
+        },
+        {
+            "bins": ["kimi"],
+            "display": "Moonshot Kimi Code (kimi)",
+            "kind": "pypi",
+            "target": "kimi-cli",
+            "source": "Moonshot PyPI",
+            "update_cmd": "uv tool upgrade kimi-cli",
+            "homepage": "https://pypi.org/project/kimi-cli/"
+        },
+        {
+            "bins": ["vibe"],
+            "display": "Mistral Vibe (vibe)",
+            "kind": "pypi",
+            "target": "mistral-vibe",
+            "source": "Mistral AI PyPI",
+            "update_cmd": "uv tool upgrade mistral-vibe",
+            "homepage": "https://pypi.org/project/mistral-vibe/"
+        },
+        {
+            "bins": ["amp"],
+            "display": "Sourcegraph Amp (amp)",
+            "kind": "npm",
+            "target": "@sourcegraph/amp",
+            "source": "Sourcegraph NPM",
+            "update_cmd": "amp update",
+            "homepage": "https://ampcode.com"
+        },
+        {
+            "bins": ["opencode"],
+            "display": "OpenCode AI (opencode)",
+            "kind": "npm",
+            "target": "opencode-ai",
+            "source": "OpenCode NPM",
+            "update_cmd": "opencode upgrade",
+            "homepage": "https://opencode.ai"
+        },
+        {
+            "bins": ["qwen"],
+            "display": "Alibaba Qwen Code (qwen)",
+            "kind": "npm",
+            "target": "@qwen-code/qwen-code",
+            "source": "Qwen Code NPM",
+            "update_cmd": "npm install -g @qwen-code/qwen-code@latest",
+            "homepage": "https://github.com/QwenLM/qwen-code"
+        },
+        {
+            "bins": ["cline"],
+            "display": "Cline CLI (cline)",
+            "kind": "npm",
+            "target": "cline",
+            "source": "Cline NPM",
+            "update_cmd": "npm install -g cline@latest",
+            "homepage": "https://cline.bot"
+        },
+        {
+            "bins": ["kilo", "kilocode"],
+            "display": "Kilo Code CLI (kilo)",
+            "kind": "npm",
+            "target": "@kilocode/cli",
+            "source": "Kilo Code NPM",
+            "update_cmd": "npm install -g @kilocode/cli@latest",
+            "homepage": "https://kilocode.ai"
+        },
+        {
+            "bins": ["pi"],
+            "display": "Pi Coding Agent (pi)",
+            "kind": "npm",
+            "target": "@mariozechner/pi-coding-agent",
+            "source": "Pi Agent NPM",
+            "update_cmd": "npm install -g @mariozechner/pi-coding-agent@latest",
+            "homepage": "https://www.npmjs.com/package/@mariozechner/pi-coding-agent"
+        },
+        {
+            "bins": ["copilot", "github-copilot"],
+            "display": "GitHub Copilot CLI (copilot)",
+            "kind": "npm",
+            "target": "@github/copilot",
+            "source": "GitHub NPM",
+            "update_cmd": "npm install -g @github/copilot@latest",
+            "homepage": "https://github.com/features/copilot/cli"
+        },
+        {
+            "bins": ["aider"],
+            "display": "Aider AI Pair Programmer (aider)",
+            "kind": "pypi",
+            "target": "aider-chat",
+            "source": "Aider PyPI",
+            "update_cmd": "aider --upgrade",
+            "homepage": "https://aider.chat"
+        },
+        {
+            "bins": ["letta"],
+            "display": "Letta Code (letta)",
+            "kind": "pypi",
+            "target": "letta",
+            "source": "Letta PyPI",
+            "update_cmd": "uv tool upgrade letta",
+            "homepage": "https://www.letta.com"
+        },
+        {
+            "bins": ["openhands"],
+            "display": "OpenHands AI Agent (openhands)",
+            "kind": "pypi",
+            "target": "openhands-ai",
+            "source": "OpenHands PyPI",
+            "update_cmd": "uv tool upgrade openhands-ai",
+            "homepage": "https://all-hands.dev"
+        },
+        {
+            "bins": ["goose"],
+            "display": "Block Goose Agent (goose)",
+            "kind": "github",
+            "target": "block/goose",
+            "source": "GitHub Releases",
+            "update_cmd": "goose update",
+            "homepage": "https://block.github.io/goose/"
+        },
+        {
+            "bins": ["mercury"],
+            "display": "Mercury CLI (mercury)",
+            "kind": "github",
+            "target": "MercuryTechnologies/mercury-cli",
+            "source": "GitHub Releases",
+            "update_cmd": "mercury upgrade",
+            "homepage": "https://mercury.com"
+        },
+        {
+            "bins": ["basecamp"],
+            "display": "Basecamp CLI (basecamp)",
+            "kind": "github",
+            "target": "basecamp/basecamp-cli",
+            "source": "GitHub Releases",
+            "update_cmd": "brew upgrade basecamp || go install github.com/basecamp/basecamp-cli/cmd/basecamp@latest",
+            "homepage": "https://github.com/basecamp/basecamp-cli"
+        },
+        {
+            "bins": ["cursor-agent"],
+            "display": "Cursor Agent CLI (cursor-agent)",
+            "kind": "self",
+            "target": "",
+            "source": "Cursor CLI",
+            "update_cmd": "cursor-agent update",
+            "homepage": "https://cursor.com"
+        },
+        {
+            "bins": ["droid"],
+            "display": "Factory Droid CLI (droid)",
+            "kind": "self",
+            "target": "",
+            "source": "Factory AI CLI",
+            "update_cmd": "droid update",
+            "homepage": "https://factory.ai"
+        },
+        {
+            "bins": ["devin"],
+            "display": "Cognition Devin CLI (devin)",
+            "kind": "self",
+            "target": "",
+            "source": "Cognition CLI",
+            "update_cmd": "devin update",
+            "homepage": "https://devin.ai"
+        },
+        {
+            "bins": ["kiro", "kiro-cli"],
+            "display": "AWS Kiro CLI (kiro)",
+            "kind": "self",
+            "target": "",
+            "source": "Kiro CLI",
+            "update_cmd": "kiro update",
+            "homepage": "https://kiro.dev"
+        },
+        {
+            "bins": ["qoder", "qodercli"],
+            "display": "Qoder CLI (qodercli)",
+            "kind": "self",
+            "target": "",
+            "source": "Qoder CLI",
+            "update_cmd": "qodercli update",
+            "homepage": "https://qoder.com"
+        }
+    ]
+
+    for entry in CATALOG:
+        matched_name, bin_path = find_cli_bin(entry["bins"])
+        if not bin_path or matched_name in seen_bins:
+            continue
+        seen_bins.add(matched_name)
+        try:
+            res = subprocess.run([bin_path, "--version"], capture_output=True, text=True, timeout=5)
+            out = (res.stdout + " " + res.stderr).strip()
+            m = re.search(r'(\d+\.\d+\.\d+(?:-[A-Za-z0-9\._]+)?)', out)
+            if not m:
+                continue
+            inst_v = m.group(1)
+            late_v = inst_v
+            status = "up_to_date"
+
+            if entry["kind"] == "npm":
+                try:
+                    req = urllib.request.Request(f"https://registry.npmjs.org/{entry['target']}/latest", headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                        late_v = json.loads(resp.read().decode()).get("version", inst_v)
+                        if version_is_newer(inst_v, late_v):
+                            status = "outdated"
+                except Exception:
+                    pass
+            elif entry["kind"] == "pypi":
+                try:
+                    req = urllib.request.Request(f"https://pypi.org/pypi/{entry['target']}/json", headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                        late_v = json.loads(resp.read().decode()).get("info", {}).get("version", inst_v)
+                        if version_is_newer(inst_v, late_v):
+                            status = "outdated"
+                except Exception:
+                    pass
+            elif entry["kind"] == "github":
+                try:
+                    req = urllib.request.Request(f"https://api.github.com/repos/{entry['target']}/releases/latest", headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                        tag = json.loads(resp.read().decode()).get("tag_name", "")
+                        if tag:
+                            late_v = tag.lstrip("v")
+                            if version_is_newer(inst_v, late_v):
+                                status = "outdated"
+                except Exception:
+                    pass
+
+            tools.append({
+                "name": entry["display"],
+                "installed": inst_v,
+                "latest": late_v,
+                "status": status,
+                "source": entry["source"],
+                "install_method": "AI CLI",
+                "update_cmd": entry["update_cmd"],
+                "homepage": entry["homepage"],
                 "type": "cli"
             })
         except Exception:
@@ -742,10 +1028,18 @@ def run_scan():
     # Pro-Only: Scan CLI tools & AI Agents (NPM, Pipx, uv, Homebrew Formulae, Claude Code, Grok, Meta Muse, Codex, Hermes, OpenClaw, Antigravity)
     if is_pro_unlocked():
         cli_items = []
-        cli_items.extend(get_ai_cli_tools())
-        cli_items.extend(get_uv_tools())
-        cli_items.extend(get_npm_tools())
-        cli_items.extend(get_pipx_tools())
+        ai_tools = get_ai_cli_tools()
+        cli_items.extend(ai_tools)
+        ai_covered = {"mistral-vibe", "kimi-cli", "aider-chat", "letta", "openhands-ai", "@anthropic-ai/claude-code", "@openai/codex", "@google/gemini-cli", "@sourcegraph/amp", "opencode-ai", "@qwen-code/qwen-code", "cline", "@kilocode/cli", "@mariozechner/pi-coding-agent", "@github/copilot", "openclaw"}
+        for t in get_uv_tools():
+            if t["name"] not in ai_covered:
+                cli_items.extend([t])
+        for t in get_npm_tools():
+            if t["name"] not in ai_covered:
+                cli_items.extend([t])
+        for t in get_pipx_tools():
+            if t["name"] not in ai_covered:
+                cli_items.extend([t])
         cli_items.extend(get_brew_formulae())
         for item in cli_items:
             if ignored_releases.get(item["name"]) == item["latest"] and item["status"] == "outdated":

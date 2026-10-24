@@ -41,6 +41,16 @@ let demoApps = [
         type: "cli"
     },
     {
+        name: "Herdr Agent Workspace (herdr)",
+        installed: "0.9.0",
+        latest: "0.9.5",
+        status: "outdated",
+        source: "herdr.dev Manifest",
+        install_method: "AI CLI",
+        update_cmd: "herdr update",
+        type: "cli"
+    },
+    {
         name: "OpenClaw Gateway (openclaw)",
         installed: "2026.9.1",
         latest: "2026.10.6",
