@@ -1076,9 +1076,8 @@ def run_scan():
     total = len(report_data)
     outdated = sum(1 for x in report_data if x["status"] == "outdated")
     ignored = sum(1 for x in report_data if x["status"] == "ignored")
-    false_alarm_count = sum(1 for x in report_data if x["status"] == "false_alarm")
-    up_to_date = total - outdated - ignored - false_alarm_count
-    healthy = up_to_date + ignored + false_alarm_count
+    up_to_date = total - outdated - ignored
+    healthy = up_to_date + ignored
     pct = round((healthy / total) * 100, 1) if total > 0 else 0
     
     save_history({
@@ -1086,7 +1085,7 @@ def run_scan():
         "percentage": pct,
         "up_to_date_count": up_to_date,
         "outdated_count": outdated,
-        "ignored_count": ignored + false_alarm_count
+        "ignored_count": ignored
     })
     
     return report_data
@@ -1110,9 +1109,8 @@ def get_html_content():
     total = len(cached_scan_data)
     outdated = sum(1 for x in cached_scan_data if x["status"] == "outdated")
     ignored = sum(1 for x in cached_scan_data if x["status"] == "ignored")
-    false_alarm_count = sum(1 for x in cached_scan_data if x["status"] == "false_alarm")
-    up_to_date = total - outdated - ignored - false_alarm_count
-    healthy = up_to_date + ignored + false_alarm_count
+    up_to_date = total - outdated - ignored
+    healthy = up_to_date + ignored
     pct = round((healthy / total) * 100, 1) if total > 0 else 0
     stroke_offset = 226 - (226 * pct / 100)
     mac_os_version = platform.mac_ver()[0]
@@ -1558,9 +1556,9 @@ def get_html_content():
         }
 
         .status-false_alarm {
-            background: rgba(168, 85, 247, 0.16);
-            color: #c084fc;
-            border: 1px solid rgba(168, 85, 247, 0.35);
+            background: var(--accent-green-glow);
+            color: var(--accent-green);
+            border: 1px dashed rgba(16, 185, 129, 0.45);
         }
 
         .status-outdated {
@@ -1905,8 +1903,8 @@ def get_html_content():
             const outdated = data.filter(x => x.status === 'outdated').length;
             const ignored = data.filter(x => x.status === 'ignored').length;
             const falseAlarms = data.filter(x => x.status === 'false_alarm').length;
-            const upToDate = total - outdated - ignored - falseAlarms;
-            const healthy = upToDate + ignored + falseAlarms;
+            const upToDate = total - outdated - ignored;
+            const healthy = upToDate + ignored;
             const pct = total > 0 ? Math.round((healthy / total) * 1000) / 10 : 0;
 
             // Update stats labels
@@ -1915,7 +1913,7 @@ def get_html_content():
             document.getElementById('lblUpToDateCount').textContent = upToDate;
             document.getElementById('lblOutdatedCount').textContent = outdated;
             const lblIgnored = document.getElementById('lblIgnoredCount');
-            if (lblIgnored) lblIgnored.textContent = ignored + falseAlarms;
+            if (lblIgnored) lblIgnored.textContent = ignored;
 
             // Update filter button labels
             document.getElementById('btnAll').textContent = `All Apps (${total})`;
@@ -1954,8 +1952,8 @@ def get_html_content():
                     statusLabel = 'Ignored';
                     statusEmoji = '🟡';
                 } else if (row.status === 'false_alarm') {
-                    statusLabel = 'False Alarm';
-                    statusEmoji = '🚩';
+                    statusLabel = 'Up to Date · False Alarm';
+                    statusEmoji = '🟢';
                 }
                 
                 const escName = row.name.replace(/'/g, "\\'");
@@ -2292,7 +2290,7 @@ def get_html_content():
                 const appStatus = row.getAttribute('data-status');
                 
                 const matchesSearch = appName.includes(searchQuery);
-                const matchesFilter = (currentFilter === 'all') || (appStatus === currentFilter);
+                const matchesFilter = (currentFilter === 'all') || (appStatus === currentFilter) || (currentFilter === 'up_to_date' && appStatus === 'false_alarm');
 
                 if (matchesSearch && matchesFilter) {
                     row.style.display = '';

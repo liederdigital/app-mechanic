@@ -849,9 +849,9 @@ code {
 }
 
 .sim-status-false_alarm {
-    background: rgba(168, 85, 247, 0.16);
-    color: #c084fc;
-    border: 1px solid rgba(168, 85, 247, 0.35);
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--accent-green);
+    border: 1px dashed rgba(16, 185, 129, 0.45);
 }
 
 .sim-method-tag {

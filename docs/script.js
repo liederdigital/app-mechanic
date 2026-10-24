@@ -165,21 +165,20 @@ function updateSimStats() {
     const total = activeSet.length;
     const outdated = activeSet.filter(a => a.status === 'outdated').length;
     const ignored = activeSet.filter(a => a.status === 'ignored').length;
-    const falseAlarms = activeSet.filter(a => a.status === 'false_alarm').length;
-    const upToDate = total - outdated - ignored - falseAlarms;
-    const healthy = upToDate + ignored + falseAlarms;
+    const upToDate = total - outdated - ignored;
+    const healthy = upToDate + ignored;
     const pct = total > 0 ? Math.round((healthy / total) * 1000) / 10 : 0;
 
     document.getElementById('simPctVal').textContent = pct + '%';
     document.getElementById('simRingLabel').textContent = Math.round(pct) + '%';
     document.getElementById('simUpToDateVal').textContent = upToDate;
     document.getElementById('simOutdatedVal').textContent = outdated;
-    document.getElementById('simIgnoredVal').textContent = ignored + falseAlarms;
+    document.getElementById('simIgnoredVal').textContent = ignored;
 
     document.getElementById('simFilterAll').textContent = `All Apps (${total})`;
     document.getElementById('simFilterOutdated').textContent = `Outdated (${outdated})`;
     document.getElementById('simFilterUp').textContent = `Up to Date (${upToDate})`;
-    document.getElementById('simFilterIgnored').textContent = `Ignored (${ignored + falseAlarms})`;
+    document.getElementById('simFilterIgnored').textContent = `Ignored (${ignored})`;
 
     const circle = document.getElementById('simRingCircle');
     if (circle) {
@@ -205,7 +204,7 @@ function renderSimulatedTable() {
     });
 
     sorted.forEach(app => {
-        const matchesFilter = (currentSimFilter === 'all') || (app.status === currentSimFilter);
+        const matchesFilter = (currentSimFilter === 'all') || (app.status === currentSimFilter) || (currentSimFilter === 'up_to_date' && app.status === 'false_alarm');
         const matchesQuery = app.name.toLowerCase().includes(query) || app.install_method.toLowerCase().includes(query);
         if (!matchesFilter || !matchesQuery) return;
 
@@ -218,8 +217,8 @@ function renderSimulatedTable() {
             emoji = '🟡';
             statusText = 'Ignored';
         } else if (app.status === 'false_alarm') {
-            emoji = '🚩';
-            statusText = 'False Alarm';
+            emoji = '🟢';
+            statusText = 'Up to Date · False Alarm';
         }
 
         const versionHtml = app.status === 'outdated'
