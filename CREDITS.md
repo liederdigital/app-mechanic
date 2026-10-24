@@ -2,7 +2,7 @@
 
 This document records the build provenance of **App Mechanic** (`liederdigital/app-mechanic`): which AI builders and tools contributed to the repository, where they ran, what each phase contributed, and how human direction and review shaped the project.
 
-Licensing and third-party terms are maintained separately in [LICENSE](LICENSE). Website build provenance is also recorded in the companion [`liederdigital/app-mechanic-website`](https://github.com/liederdigital/app-mechanic-website) repository.
+Licensing and third-party terms are maintained separately in [LICENSE](LICENSE). Website build provenance is also recorded in the companion [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) repository.
 
 ---
 
@@ -44,10 +44,10 @@ Licensing and third-party terms are maintained separately in [LICENSE](LICENSE).
 - **Builder / Tool**: Google Antigravity (**Observed**)
 - **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
 - **Model / Mode**: Gemini (Medium effort) (**Observed**)
-- **Human Involvement**: Ron Stauffer provided the `notchy.dev` design reference, selected the static HTML/CSS/JS architecture and Free + Pro licensing structure, set up the [`liederdigital/app-mechanic-website`](https://github.com/liederdigital/app-mechanic-website) repository and Cloudflare Pages project, identified a CSS Grid column overflow via screenshot review, registered and connected `appmechanic.dev`, and pointed out the full local Antigravity conversation history to resolve earlier `CREDITS.md` unknowns (**Observed** / **Owner-confirmed**).
+- **Human Involvement**: Ron Stauffer provided the `notchy.dev` design reference, selected the static HTML/CSS/JS architecture and Free + Pro licensing structure, set up the [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) repository and Cloudflare Pages project, identified a CSS Grid column overflow via screenshot review, registered and connected `appmechanic.dev`, and pointed out the full local Antigravity conversation history to resolve earlier `CREDITS.md` unknowns (**Observed** / **Owner-confirmed**).
 - **Contributions & References**:
   - Built the Notchy-inspired glassmorphic landing page in [`docs/index.html`](docs/index.html), [`docs/styles.css`](docs/styles.css), and [`docs/script.js`](docs/script.js) featuring a floating pill navbar, interactive `localhost:8000` dashboard simulator, 5-ecosystem bento grid, copyable setup snippets, Free vs. Pro pricing cards, and FAQ accordion.
-  - Deployed to [`liederdigital/app-mechanic-website`](https://github.com/liederdigital/app-mechanic-website) (`1438b91`), fixed CSS Grid column overflow (`06b2eb5`), and updated metadata and [`app_mechanic.py`](app_mechanic.py) / [`README.md`](README.md) links to `https://appmechanic.dev` (`f39f2b5`, `e7c9270`, `39d3ac0`).
+  - Deployed to [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) (`1438b91`), fixed CSS Grid column overflow (`06b2eb5`), and updated metadata and [`app_mechanic.py`](app_mechanic.py) / [`README.md`](README.md) links to `https://appmechanic.dev` (`f39f2b5`, `e7c9270`, `39d3ac0`).
 
 ### 2026-10-16 (America/Denver, MDT) — `v0.5.5` Launch Fix, Release & Initial Provenance Log
 - **Session**: *Troubleshooting WhisperFlow App Launch* (**Observed**)
