@@ -21,5 +21,5 @@ xcrun stapler staple "dist/App Mechanic.app"
 # Step 4: Create release ZIP
 echo "Creating zip archive for distribution..."
 cd dist
-ditto -c -k --keepParent --norsrc "App Mechanic.app" "AppMechanic-v0.6.2-Signed.zip"
+ditto -c -k --keepParent --norsrc "App Mechanic.app" "AppMechanic-v0.6.3-Signed.zip"
 cd ..

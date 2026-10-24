@@ -13,12 +13,12 @@ Licensing and third-party terms are maintained separately in [LICENSE](LICENSE).
 | **Project** | App Mechanic (macOS application update scanner & local web dashboard) | Observed ([`app_mechanic.py`](app_mechanic.py), [`README.md`](README.md)) |
 | **Human Owner** | Ron Stauffer (Lieder Digital, LLC) | Observed (Git history, [`LICENSE`](LICENSE), [`setup.py`](setup.py)) |
 | **Primary Tool** | Google Antigravity | Observed across all 7 project conversation transcripts (`2026-07-28` through `2026-10-24`) |
-| **Known AI Contributors & Scope** | Google Antigravity (`v0.1.0`–`v0.6.2` application architecture, Homebrew Cask/Formula + Mac App Store `mas` + `npm` + `pipx` + `uv` + 25+ AI/Vibe-Coding CLI scanning, `py2app` bundling, Apple code-signing & notarization scripts, Gumroad Pro licensing, `CREDITS.md` provenance log, and the [appmechanic.dev](https://appmechanic.dev) marketing website & interactive simulator) | Observed (Antigravity workspace transcripts & `git log`) |
+| **Known AI Contributors & Scope** | Google Antigravity (`v0.1.0`–`v0.6.3` application architecture, Homebrew Cask/Formula + Mac App Store `mas` + `npm` + `pipx` + `uv` + 25+ AI/Vibe-Coding CLI scanning, `py2app` bundling, Apple code-signing & notarization scripts, Gumroad Pro licensing, `CREDITS.md` provenance log, and the [appmechanic.dev](https://appmechanic.dev) marketing website & interactive simulator) | Observed (Antigravity workspace transcripts & `git log`) |
 | **Execution Surface** | Desktop application (Google Antigravity macOS app with integrated terminal and file tools) | Observed (Antigravity session logs) |
 | **Editor** | Google Antigravity IDE (`Antigravity.app`) | Observed (Antigravity session logs) |
 | **Known Models / Modes** | • **Aug 17, 2026 – Sep 21, 2026**: Gemini 3.1 Pro (High)<br>• **Oct 16, 2026 – Oct 24, 2026**: Gemini (Medium effort)<br>• **Jul 28, 2026 – Aug 11, 2026**: Unknown exact model string (Antigravity default prior to explicit model-selection logging) | Observed (`USER_SETTINGS_CHANGE` records in Antigravity transcripts) |
 | **Project Era** | July 27, 2026 – October 24, 2026 (America/Denver, Mountain Time) | Observed (`git log` & session timestamps) |
-| **Current Status** | Active — `v0.6.2` (Pro AI & CLI tool scanner + official website live at [appmechanic.dev](https://appmechanic.dev)) | Observed (`app_mechanic.py`, `setup.py`, `build.sh`) |
+| **Current Status** | Active — `v0.6.3` (Pro AI & CLI tool scanner + official website live at [appmechanic.dev](https://appmechanic.dev)) | Observed (`app_mechanic.py`, `setup.py`, `build.sh`) |
 
 ---
 
@@ -38,6 +38,18 @@ Licensing and third-party terms are maintained separately in [LICENSE](LICENSE).
 ---
 
 ## Builder History (Newest First)
+
+### 2026-10-24 (America/Denver, MDT) — `v0.6.3` In-App Purchase Flow, Direct Store Link Standardization & Site Clean-Up
+- **Session**: *Post-v0.6.2 Release & appmechanic.dev Clean-Up* (**Observed**)
+- **Builder / Tool**: Google Antigravity (**Observed**)
+- **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
+- **Model / Mode**: Gemini 3.8 Flash (High) (**Observed**)
+- **Human Involvement**: Ron Stauffer requested standardizing the Gumroad URL across all repositories and app files to `store.liederdigital.com`, pointing in-app purchases directly to checkout for highest conversion, reducing the legacy `docs/` folder in the app repo to a clean redirect to `appmechanic.dev`, verifying v0.5.x license key compatibility, verifying the Wispr Flow bundle launch fix, and releasing `v0.6.3` (**Observed** / **Owner-confirmed**).
+- **Contributions & References**:
+  - Re-routed "Purchase a Pro License" in [`app_mechanic.py`](app_mechanic.py) (line 1834) directly to `https://store.liederdigital.com/l/appmechanic` for immediate frictionless checkout.
+  - Standardized Gumroad URLs across [`README.md`](README.md), [`NOTES.md`](NOTES.md), [`setup.py`](setup.py), [`build.sh`](build.sh), and companion repo [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev).
+  - Reduced [`docs/`](docs/) to a lightweight, zero-asset redirect to `https://appmechanic.dev/`.
+  - Bumped application to `v0.6.3`.
 
 ### 2026-10-23 to 2026-10-24 (America/Denver, MDT) — Marketing Website (`appmechanic.dev`), Interactive Simulator, `v0.6.0`–`v0.6.2` Pro AI/CLI Scanner & Provenance Update
 - **Session**: *Creating A Website Like Notchy* (**Observed**)

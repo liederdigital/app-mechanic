@@ -1,14 +1,14 @@
 # App Mechanic — Project Architecture & Engineering Notes
 
 ## Overview
-App Mechanic (`v0.6.2`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` and developer CLI toolchains, cross-references installed versions against Homebrew Casks, the Mac App Store (`mas`), Homebrew Formulae, NPM, PyPI (`uv` / `pipx`), and 25+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
+App Mechanic (`v0.6.3`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` and developer CLI toolchains, cross-references installed versions against Homebrew Casks, the Mac App Store (`mas`), Homebrew Formulae, NPM, PyPI (`uv` / `pipx`), and 25+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
 
 ## Repositories & Live Endpoints
 - **Core App Repository:** [`github.com/liederdigital/app-mechanic`](https://github.com/liederdigital/app-mechanic)
 - **Website Repository:** [`github.com/liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev)
 - **Production Website:** [https://appmechanic.dev](https://appmechanic.dev) (Cloudflare Pages project `app-mechanic.pages.dev`)
-- **Pro Licensing (Gumroad):** [https://liederdigital.gumroad.com/l/appmechanic](https://liederdigital.gumroad.com/l/appmechanic) (permalink `appmechanic`, API Product ID `iM_J0YmI3uSqvcIJ7l3uFQ==`)
-- **Marketing Page on Lieder Digital:** [https://liederdigital.com/apps/app-mechanic](https://liederdigital.com/apps/app-mechanic)
+- **Pro Licensing (Gumroad):** [https://store.liederdigital.com/l/appmechanic](https://store.liederdigital.com/l/appmechanic) (permalink `appmechanic`, API Product ID `iM_J0YmI3uSqvcIJ7l3uFQ==`)
+- **Legacy Lieder Digital Page:** [https://liederdigital.com/apps/app-mechanic](https://liederdigital.com/apps/app-mechanic) (301 redirect to [https://appmechanic.dev](https://appmechanic.dev))
 
 ## How Version Detection Works (`app_mechanic.py`)
 1. **Mac App Store (`mas`) Apps (`get_mas_outdated()`, `get_mas_installed()`):**

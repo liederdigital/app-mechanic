@@ -9,8 +9,8 @@ OPTIONS = {
         'CFBundleName': 'App Mechanic',
         'CFBundleDisplayName': 'App Mechanic',
         "CFBundleIdentifier": "com.liederdigital.appmechanic",
-        "CFBundleVersion": "0.6.2",
-        "CFBundleShortVersionString": "0.6.2",
+        "CFBundleVersion": "0.6.3",
+        "CFBundleShortVersionString": "0.6.3",
         "NSHumanReadableCopyright": "© 2026 Lieder Digital, LLC. All rights reserved.",
         'CFBundleGetInfoString': "App Mechanic - macOS App Updater and Scanner",
         'LSUIElement': True, # Runs in the background (no Dock icon), relying on the web browser for UI

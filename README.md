@@ -1,11 +1,11 @@
-# App Mechanic (`v0.6.2`)
+# App Mechanic (`v0.6.3`)
 
 ![App Mechanic Icon](icon.jpg)
 
 **App Mechanic** is a sleek, zero-dependency macOS utility written in pure Python that scans your installed `/Applications` and developer CLI toolchains against **Homebrew Casks**, **Mac App Store (`mas`)**, **Homebrew Formulae**, **NPM Global**, **Python `uv` & `pipx`**, and **25+ AI & Vibe-Coding CLI release channels**.
 
 🌐 **Official Website & Live Interactive Simulator:** [https://appmechanic.dev](https://appmechanic.dev) (companion repo: [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev))  
-⚡ **Get App Mechanic Pro (\$12 once, no subscription):** [https://liederdigital.gumroad.com/l/appmechanic](https://liederdigital.gumroad.com/l/appmechanic)
+⚡ **Get App Mechanic Pro (\$12 once, no subscription):** [https://store.liederdigital.com/l/appmechanic](https://store.liederdigital.com/l/appmechanic)
 
 It serves a glassmorphic dark-mode dashboard directly on `http://localhost:8000` so you can see the health of your entire Mac software stack at a glance.
 
@@ -44,7 +44,7 @@ App Mechanic uses only the Python standard library (`0` third-party Python packa
 
 App Mechanic is officially code-signed with a Developer ID by **Lieder Digital, LLC** and **Notarized by Apple**.
 
-1. Download the latest `AppMechanic-v0.6.2-Signed.zip` from the [GitHub Releases](https://github.com/liederdigital/app-mechanic/releases/latest) page (or [appmechanic.dev](https://appmechanic.dev)).
+1. Download the latest `AppMechanic-v0.6.3-Signed.zip` from the [GitHub Releases](https://github.com/liederdigital/app-mechanic/releases/latest) page (or [appmechanic.dev](https://appmechanic.dev)).
 2. Double-click to extract the `.zip`.
 3. Drag `App Mechanic.app` into your `/Applications` folder and double-click to launch!
 
@@ -54,7 +54,7 @@ App Mechanic is officially code-signed with a Developer ID by **Lieder Digital, 
 - **Application Repo (`liederdigital/app-mechanic`)**:
   - [`app_mechanic.py`](app_mechanic.py) — Single-file Python scanner, local HTTP server (`127.0.0.1:8000`), Gumroad `/v2/licenses/verify` client, and embedded glassmorphic web UI.
   - [`setup.py`](setup.py) & [`build.sh`](build.sh) — `py2app` bundling, Developer ID code signing, Apple `notarytool` submission, and `stapler` packaging.
-  - [`docs/`](docs/) — Source copy of the marketing website and interactive dashboard simulator.
+  - [`docs/`](docs/) — Redirect to official website and live interactive simulator at [appmechanic.dev](https://appmechanic.dev).
   - [`CREDITS.md`](CREDITS.md) — Complete build provenance and AI/tool attribution log.
 - **Website Repo ([`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev))**:
   - Deployed via Cloudflare Pages (`app-mechanic.pages.dev`) to **[https://appmechanic.dev](https://appmechanic.dev)**.

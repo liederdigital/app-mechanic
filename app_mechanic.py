@@ -25,7 +25,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.2"
+APP_VERSION = "0.6.3"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -1831,7 +1831,7 @@ def get_html_content():
                 <button onclick="activateLicense()" id="btnActivate" class="btn" style="flex: 1; background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Activate</button>
             </div>
             <div style="margin-top: 1rem;">
-                <a href="https://liederdigital.com/apps/app-mechanic" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-size: 0.85rem;">Purchase a Pro License →</a>
+                <a href="https://store.liederdigital.com/l/appmechanic" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-size: 0.85rem;">Purchase a Pro License →</a>
             </div>
         </div>
     </div>
