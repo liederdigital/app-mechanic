@@ -1,35 +1,36 @@
-# App Mechanic - Project Notes
+# App Mechanic — Project Architecture & Engineering Notes
 
-## What is this project?
-App Mechanic is a lightweight, zero-dependency macOS utility written in pure Python standard library. It scans the `/Applications` folder, cross-references installed apps against the Mac App Store and Homebrew Cask databases, and serves a local, glassmorphic HTML dashboard (on localhost:8000) that displays which apps are up-to-date and which are outdated. It features an interactive "Scan Now" button for real-time rescanning.
+## Overview
+App Mechanic (`v0.6.2`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` and developer CLI toolchains, cross-references installed versions against Homebrew Casks, the Mac App Store (`mas`), Homebrew Formulae, NPM, PyPI (`uv` / `pipx`), and 25+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
 
-## Current State
-- The repository is currently live at `github.com/liederdigital/app-mechanic`.
-- The working tree is clean (committed and pushed).
-- The core functionality (scanning, matching against `mas` and Homebrew, serving the UI) is implemented in a single script (`app_mechanic.py`).
+## Repositories & Live Endpoints
+- **Core App Repository:** [`github.com/liederdigital/app-mechanic`](https://github.com/liederdigital/app-mechanic)
+- **Website Repository:** [`github.com/liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev)
+- **Production Website:** [https://appmechanic.dev](https://appmechanic.dev) (Cloudflare Pages project `app-mechanic.pages.dev`)
+- **Pro Licensing (Gumroad):** [https://liederdigital.gumroad.com/l/appmechanic](https://liederdigital.gumroad.com/l/appmechanic) (permalink `appmechanic`, API Product ID `iM_J0YmI3uSqvcIJ7l3uFQ==`)
+- **Marketing Page on Lieder Digital:** [https://liederdigital.com/apps/app-mechanic](https://liederdigital.com/apps/app-mechanic)
 
-## How Version Detection Works
-The tool identifies the update status of applications by falling into one of three categories:
+## How Version Detection Works (`app_mechanic.py`)
+1. **Mac App Store (`mas`) Apps (`get_mas_outdated()`, `get_mas_installed()`):**
+   - Shells out to `mas outdated` and `mas list`, ignoring placeholder ID `0`.
+   - Outdated MAS apps link directly to `macappstore://apps.apple.com/app/id<MAS_ID>` when clicked.
+2. **Homebrew Cask GUI Apps (`fetch_brew_casks()`):**
+   - Fetches `https://formulae.brew.sh/api/cask.json`, maps `.app` bundle artifacts, prioritizes exact token matches and stable casks over unstable (`beta`, `nightly`, `dev`, `alpha`, `rc`, `canary`) variants, and compares `CFBundleShortVersionString` / `CFBundleVersion` using segment-padded integer tuples.
+   - Filters known silent background auto-updaters (`obsidian`, `discord`, `slack`, `notion`, `cursor`, `code`, `spotify`, `figma`, `whatsapp`, `opera`, `descript`, `chatgpt`, `claude`, `firefox`, etc.) to prevent false positives.
+3. **Pro-Only AI & Vibe-Coding CLI Scanner (`get_ai_cli_tools()`):**
+   - Gated strictly behind `is_pro_unlocked()`.
+   - Checks native self-updaters and upstream registries for `grok` (`grok update --check --json`), `muse` (`api.meta.ai/muse-code/channels/muse-stable`, updated synchronously via `MUSE_SYNC_UPDATE=1 muse --version`), `herdr` (`herdr.dev/latest.json`), `hermes` (`hermes --version`), `openclaw` (`openclaw-safe-update` / NPM), `agy`, `claude`, `codex` (`codex update`), `gemini`, `kimi`, `vibe`, `amp`, `opencode`, `qwen`, `cline`, `kilo`, `pi`, `copilot`, `aider`, `letta`, `openhands`, `goose`, `mercury` (`mercury upgrade`), and `basecamp` (`basecamp upgrade`).
+4. **Pro-Only Developer Package Managers (`get_uv_tools()`, `get_npm_tools()`, `get_pipx_tools()`, `get_brew_formulae()`):**
+   - Deduplicates packages already covered by `get_ai_cli_tools()`.
+   - Dispatches 1-click Terminal upgrades via `osascript` (`/api/update_cli`).
+5. **Local State & Overrides (`~/Library/Application Support/AppMechanic/`):**
+   - `history.json`: Rolling 50-scan history log.
+   - `license.json`: Activated Gumroad Pro license state.
+   - `usage.json`: Free tier scan counter (3 free GUI scans).
+   - `ignored_releases.json`: Version-specific ignored updates (`🚫 Ignore`, counted under `🟡 Ignored`).
+   - `false_alarms.json`: Persistent catalog-mismatch overrides (`🚩 False Alarm`, counted as green `🟢 Up to Date` and paired with a 1-click GitHub Issue / Email inaccuracy report modal).
 
-1. **Mac App Store (mas) Apps:**
-   - **Detection:** It shells out to the `mas outdated` CLI command.
-   - **Parsing:** It parses the command's stdout using regex to extract the app name, the installed version, and the latest version.
-   - **Matching:** If a local `.app` name matches a name in the `mas outdated` output, it's flagged as outdated.
-
-2. **Homebrew Cask Apps:**
-   - **Detection:** It fetches the Homebrew Cask JSON database from `https://formulae.brew.sh/api/cask.json` and maps Cask artifacts to the corresponding local `/Applications` bundle names.
-   - **Installed Version:** It reads the `CFBundleShortVersionString` (or fallback to `CFBundleVersion`) from the local app's `Contents/Info.plist`.
-   - **Comparison:** It uses a custom `parse_version()` function that extracts the leading dot-separated digits via regex (`^\d+(\.\d+)+`) and converts them into an array of integers (e.g., `[1, 2, 3]`). The integer arrays for the installed version and Homebrew's latest version are then directly compared (`>` operator) to determine if an update is available.
-
-3. **Native / OS / Other Apps:**
-   - **Fallback:** If an app is neither in the `mas outdated` list nor matches a Homebrew cask, it simply reports the installed version from `Info.plist` as both installed and latest, marking the app as "Up to Date" by default.
-
-## Known Issues
-The simplistic regex-based integer array comparison in `parse_version()` combined with `Info.plist` scraping causes incorrect version reporting for certain standalone apps:
-- **Descript:** Reports as `114.0.4` — it is likely reading the bundled Electron framework version rather than the actual Descript app version.
-- **Opera:** Version parsing yields format mismatches (e.g., `133.0` vs `133.0.5932.60`), leading to false flags because of the differing number of version segments.
-- **OBS:** Comparison bounces between a stable release (`32.1.2`) and a pre-release (`32.2.0`), presumably because the script doesn't correctly handle pre-release or beta suffixes in version strings.
-
-## Next Steps
-1. **Fix Version Detection Logic:** Address the known bugs with Descript, Opera, and OBS (improving plist parsing, segment padding for version comparisons, and handling pre-releases).
-2. **Packaging:** Bundle the Python script into a native macOS `.app` bundle using `py2app` and/or package it as a standalone, single-file binary using `PyInstaller`.
+## Packaging & Notarization (`build.sh`)
+- Bundles `app_mechanic.py` into a universal macOS `.app` (`LSUIElement: True`) via `py2app`.
+- Signs all Mach-O binaries, frameworks, and bundle resources with `Developer ID Application: Lieder Digital, LLC (W6YRSA9Z5F)` (`--options runtime --timestamp`).
+- Submits to Apple Notary Service via `xcrun notarytool submit ... --wait` and staples the ticket via `xcrun stapler staple "dist/App Mechanic.app"`.
