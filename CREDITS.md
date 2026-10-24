@@ -12,79 +12,95 @@ Licensing and third-party terms are maintained separately in [LICENSE](LICENSE).
 | :--- | :--- | :--- |
 | **Project** | App Mechanic (macOS application update scanner & local web dashboard) | Observed ([`app_mechanic.py`](app_mechanic.py), [`README.md`](README.md)) |
 | **Human Owner** | Ron Stauffer (Lieder Digital, LLC) | Observed (Git history, [`LICENSE`](LICENSE), [`setup.py`](setup.py)) |
-| **Primary Tool (Current & 2026-10-16 Sessions)** | Google Antigravity | Observed (2026-10-16 and 2026-10-23..2026-10-24 sessions) |
-| **Primary Tool (Prior Phases)** | Unknown | Not recorded in repository history (`f4a873e`..`8a95680`) |
-| **Known AI Contributors & Scope** | Google Antigravity (`v0.5.5` app launch fix, Mac App Store launch logic, notarized release packaging, `CREDITS.md` provenance log, Notchy-inspired landing page in [`docs/`](docs/) & [`liederdigital/app-mechanic-website`](https://github.com/liederdigital/app-mechanic-website), and `appmechanic.dev` domain integration); prior AI contributors (if any) on `v0.1.0`–`v0.5.4` are Unknown | Observed (2026-10-16 and 2026-10-23..2026-10-24 sessions) / Unknown (prior commits) |
-| **Execution Surface (Current Session)** | Desktop application (Google Antigravity macOS app with integrated terminal and file tools) | Observed (2026-10-23..2026-10-24 session) |
-| **Editor (Current Session)** | Google Antigravity IDE (`Antigravity.app`) | Observed (2026-10-23..2026-10-24 session) |
-| **Known Model / Mode (Current Session)** | Gemini (Medium reasoning effort) | Observed (2026-10-23..2026-10-24 session) |
-| **Project Era** | July 27, 2026 – October 24, 2026 (America/Denver, Mountain Time) | Observed (`git log`) |
-| **Current Status** | Active — `v0.5.5` released; official website live at [appmechanic.dev](https://appmechanic.dev) | Observed (`5891abf`, `e7c9270`, tag `v0.5.5`) |
+| **Primary Tool** | Google Antigravity | Observed across all 7 project conversation transcripts (`2026-07-28` through `2026-10-24`) |
+| **Known AI Contributors & Scope** | Google Antigravity (`v0.1.0`–`v0.5.5` application architecture, Homebrew Cask/Formula + Mac App Store `mas` + `npm` + `pipx` scanning, `py2app` bundling, Apple code-signing & notarization scripts, Gumroad Pro licensing, `CREDITS.md` provenance log, and the [appmechanic.dev](https://appmechanic.dev) marketing website & interactive simulator) | Observed (Antigravity workspace transcripts & `git log`) |
+| **Execution Surface** | Desktop application (Google Antigravity macOS app with integrated terminal and file tools) | Observed (Antigravity session logs) |
+| **Editor** | Google Antigravity IDE (`Antigravity.app`) | Observed (Antigravity session logs) |
+| **Known Models / Modes** | • **Aug 17, 2026 – Sep 21, 2026**: Gemini 3.1 Pro (High)<br>• **Oct 16, 2026 – Oct 24, 2026**: Gemini (Medium effort)<br>• **Jul 28, 2026 – Aug 11, 2026**: Unknown exact model string (Antigravity default prior to explicit model-selection logging) | Observed (`USER_SETTINGS_CHANGE` records in Antigravity transcripts) |
+| **Project Era** | July 27, 2026 – October 24, 2026 (America/Denver, Mountain Time) | Observed (`git log` & session timestamps) |
+| **Current Status** | Active — `v0.5.5` released; official website live at [appmechanic.dev](https://appmechanic.dev) | Observed (`5891abf`, `39d3ac0`, tag `v0.5.5`) |
 
 ---
 
 ## Work Process & Evidence Limits
 
-- **Human Direction, Testing & Release**: Ron Stauffer directs feature scope, UI/UX design references, and bug investigations, verifies application and website behavior on macOS and Cloudflare Pages, manages code-signing/notarization credentials and domain registration (`appmechanic.dev`), and authorizes releases.
+- **Human Direction, Testing & Release**: Across all development sessions, Ron Stauffer directed product requirements, UI/UX refinements, and bug investigations, tested builds locally on macOS (including MacBook Air cross-machine testing), managed Apple Developer ID code-signing/notarization credentials, Gumroad licensing, and Cloudflare Pages / `appmechanic.dev` domain configuration, and authorized releases.
 - **Evidence Classification**:
-  - **Observed**: Directly verified from active sessions or repository artifacts (`git log`, [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), [`build.sh`](build.sh), [`NOTES.md`](NOTES.md), [`README.md`](README.md), [`docs/`](docs/)).
-  - **Owner-Confirmed**: Explicitly confirmed by Ron Stauffer.
-  - **Unknown**: Not established by repository evidence or owner confirmation and intentionally left unguessed.
+  - **Observed**: Directly verified from the 7 Google Antigravity project transcripts stored in the local workspace history and repository artifacts (`git log`, [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), [`build.sh`](build.sh), [`NOTES.md`](NOTES.md), [`README.md`](README.md), [`docs/`](docs/)).
+  - **Owner-Confirmed**: Explicitly confirmed by Ron Stauffer (including pointing to the complete local Antigravity conversation history for `macOS: App Mechanic`).
+  - **Unknown**: Not recorded in session logs or repository metadata and intentionally left unguessed.
 - **Evidence Limits**:
-  - Git commit authors (`Ron Stauffer <1081418+ronstauffer@users.noreply.github.com>` and `GitHub <noreply@github.com>` on `f4a873e`) reflect the Git committer identity rather than proving whether a human or an AI assistant authored the code.
-  - Commits from `f4a873e` (2026-07-27) through `8a95680` (2026-09-21) do not contain AI attribution trailers or embedded session metadata, so the specific AI tools, models, reasoning modes, or editors used during those earlier phases remain **Unknown** unless confirmed by the owner.
+  - All 7 conversations in the `macOS: App Mechanic` project folder were inspected via local Antigravity transcripts.
+  - The earliest Antigravity transcript (`2026-07-28` to `2026-08-11`, *App Mechanic Project Overview*) predates explicit `Model Selection` setting-change markers in the transcript log, so the exact underlying model version for that first session remains **Unknown**.
+  - Commit `f4a873e` (`Initial commit` on `2026-07-27`) was created on GitHub (`Commit: GitHub <noreply@github.com>`), and commit `ea79d2d` (`2026-07-27`) was committed immediately before the `2026-07-28` Antigravity transcript began.
   - The commits creating or updating this file can be inspected via `git log -- CREDITS.md`.
 
 ---
 
 ## Builder History (Newest First)
 
-### 2026-10-23 to 2026-10-24 (America/Denver, MDT) — Marketing Website (`appmechanic.dev`), Interactive Simulator & Domain Integration
+### 2026-10-23 to 2026-10-24 (America/Denver, MDT) — Marketing Website (`appmechanic.dev`), Interactive Simulator & Provenance Update
+- **Session**: *Creating A Website Like Notchy* (**Observed**)
 - **Builder / Tool**: Google Antigravity (**Observed**)
 - **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
 - **Model / Mode**: Gemini (Medium effort) (**Observed**)
-- **Human Involvement**: Ron Stauffer provided the `notchy.dev` design inspiration, selected the static HTML/CSS/JS architecture and Free + Pro licensing structure, provisioned the [`liederdigital/app-mechanic-website`](https://github.com/liederdigital/app-mechanic-website) repository and Cloudflare Pages project (`app-mechanic.pages.dev`), reviewed the live site and reported a CSS Grid overflow on the Setup cards with a full-page screenshot, and registered and connected the custom domain `appmechanic.dev` (**Observed** / **Owner-confirmed**).
+- **Human Involvement**: Ron Stauffer provided the `notchy.dev` design reference, selected the static HTML/CSS/JS architecture and Free + Pro licensing structure, set up the [`liederdigital/app-mechanic-website`](https://github.com/liederdigital/app-mechanic-website) repository and Cloudflare Pages project, identified a CSS Grid column overflow via screenshot review, registered and connected `appmechanic.dev`, and pointed out the full local Antigravity conversation history to resolve earlier `CREDITS.md` unknowns (**Observed** / **Owner-confirmed**).
 - **Contributions & References**:
-  - Created the Notchy-inspired glassmorphic landing page in [`docs/index.html`](docs/index.html), [`docs/styles.css`](docs/styles.css), and [`docs/script.js`](docs/script.js) featuring a floating pill navbar, interactive `localhost:8000` dashboard simulator (live filtering, search, Pro mode toggle, simulated CLI/App Store actions, and screenshot switcher), 5-source ecosystem bento grid, copyable setup snippets, Free vs. Pro pricing comparison, and FAQ accordion.
-  - Published the website to [`liederdigital/app-mechanic-website`](https://github.com/liederdigital/app-mechanic-website) (`1438b91`), fixed CSS Grid column width expansion on the Setup cards (`06b2eb5`), and updated canonical/OpenGraph URLs to `https://appmechanic.dev/` (`f39f2b5`).
-  - Updated [`README.md`](README.md) and the dashboard footer URL in [`app_mechanic.py`](app_mechanic.py) to point to `https://appmechanic.dev`, and committed [`CREDITS.md`](CREDITS.md) (`e7c9270`).
+  - Built the Notchy-inspired glassmorphic landing page in [`docs/index.html`](docs/index.html), [`docs/styles.css`](docs/styles.css), and [`docs/script.js`](docs/script.js) featuring a floating pill navbar, interactive `localhost:8000` dashboard simulator, 5-ecosystem bento grid, copyable setup snippets, Free vs. Pro pricing cards, and FAQ accordion.
+  - Deployed to [`liederdigital/app-mechanic-website`](https://github.com/liederdigital/app-mechanic-website) (`1438b91`), fixed CSS Grid column overflow (`06b2eb5`), and updated metadata and [`app_mechanic.py`](app_mechanic.py) / [`README.md`](README.md) links to `https://appmechanic.dev` (`f39f2b5`, `e7c9270`, `39d3ac0`).
 
 ### 2026-10-16 (America/Denver, MDT) — `v0.5.5` Launch Fix, Release & Initial Provenance Log
+- **Session**: *Troubleshooting WhisperFlow App Launch* (**Observed**)
 - **Builder / Tool**: Google Antigravity (**Observed**)
 - **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
 - **Model / Mode**: Gemini (Medium effort) (**Observed**)
 - **Human Involvement**: Ron Stauffer reported the `Wispr Flow` launch bug, approved changing Mac App Store launch behavior for up-to-date apps, verified the fix locally in `/Applications/App Mechanic.app`, and authorized publishing the signed/notarized `v0.5.5` release and creating `CREDITS.md` (**Observed** / **Owner-confirmed**).
 - **Contributions & References**:
   - Diagnosed LaunchServices name collision in [`app_mechanic.py`](app_mechanic.py) where `open -a "Wispr Flow"` resolved to a nested headless helper bundle (`Contents/Resources/swift-helper-app-dist/Wispr Flow.app`) instead of `/Applications/Wispr Flow.app`.
-  - Updated `/api/launch` and `updateUI()` in [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), and [`build.sh`](build.sh) (`5891abf`, tag `v0.5.5`) to launch apps by explicit `/Applications/<App>.app` bundle path, launch up-to-date Mac App Store apps directly instead of opening the App Store, ignore placeholder App Store ID `0` in `get_mas_installed()`, and skip dot-prefixed hidden bundles in `/Applications`.
-  - Built, Developer ID code-signed, Apple-notarized, stapled, and published `AppMechanic-v0.5.5-Signed.zip` to GitHub Releases (`v0.5.5`), and drafted [`CREDITS.md`](CREDITS.md).
+  - Updated `/api/launch` and `updateUI()` in [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), and [`build.sh`](build.sh) (`5891abf`, tag `v0.5.5`) to launch apps by explicit `/Applications/<App>.app` bundle path, launch up-to-date Mac App Store apps directly, ignore placeholder App Store ID `0` in `get_mas_installed()`, and skip dot-prefixed hidden bundles in `/Applications`.
+  - Built, Developer ID code-signed, Apple-notarized, stapled, and published `AppMechanic-v0.5.5-Signed.zip` to GitHub Releases (`v0.5.5`).
 
-### 2026-09-18 to 2026-09-21 (America/Denver, MDT) — `v0.5.4` CLI Tool Scanning & Single-Instance Fixes
-- **Builder / Tool**: Unknown
-- **Execution Surface & Editor**: Unknown
-- **Model / Mode**: Unknown
-- **Human Involvement**: Committed under Ron Stauffer's Git identity (**Observed**); exact split between human code authorship and AI assistance is **Unknown**.
+### 2026-09-21 (America/Denver, MDT) — Finder Launch Delay & AppleEvents Browser Fix
+- **Session**: *Understanding MacBook Error Message* (**Observed**)
+- **Builder / Tool**: Google Antigravity (**Observed**)
+- **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
+- **Model / Mode**: Gemini 3.1 Pro (High) (**Observed**)
+- **Human Involvement**: Ron Stauffer tested the app on a MacBook Air, shared screenshots of the macOS Finder `"The application 'App Mechanic' is not open anymore"` and AppleEvents permission errors, and verified the fix (**Observed**).
 - **Contributions & References**:
-  - Added global CLI package scanning (`npm`, `pipx`, and Homebrew formulae) with Terminal-based one-click upgrades (`/api/update_cli`), updated `macappstore://` URLs, and added testing bypass support in [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), and [`build.sh`](build.sh) (`ea1d3a8`).
-  - Fixed macOS Finder `"not open anymore"` launch error and AppleEvents browser-opening behavior by switching from `webbrowser.open` to `subprocess.call(['open', ...])` with a short exit delay on secondary launches (`8a95680`, tag `v0.5.4`).
+  - Replaced `webbrowser.open` with `subprocess.call(['open', f'http://localhost:{port}'])` and added a `1.5s` exit delay in `check_single_instance()` in [`app_mechanic.py`](app_mechanic.py) (`8a95680`, tag `v0.5.4`).
 
-### 2026-08-17 to 2026-09-06 (America/Denver, MDT) — `v0.3.0` to `v0.5.3` Install Detection, Ignore Rules, Packaging & Freemium Licensing
-- **Builder / Tool**: Unknown
-- **Execution Surface & Editor**: Unknown
-- **Model / Mode**: Unknown
-- **Human Involvement**: Committed under Ron Stauffer's Git identity (**Observed**); exact split between human code authorship and AI assistance is **Unknown**.
+### 2026-09-18 (America/Denver, MDT) — `v0.5.4` CLI Tool Scanning (`npm`, `pipx`, `brew`) & Mac App Store Deep Links
+- **Session**: *Mac App Store Link Redirection* (**Observed**)
+- **Builder / Tool**: Google Antigravity (**Observed**)
+- **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
+- **Model / Mode**: Gemini 3.1 Pro (High) (**Observed**)
+- **Human Involvement**: Ron Stauffer proposed redirecting outdated Mac App Store apps to `macappstore://` so users can click Update directly, requested expanding App Mechanic to scan global CLI tools (`npm`, `pipx`, Homebrew Formulae) with one-click Terminal updates, and tested the new dashboard layout (**Observed**).
 - **Contributions & References**:
-  - Added install method detection (`Mac App Store`, `Homebrew`, `Manual / OS`), app launching (`/api/launch`), release ignoring (`/api/ignore`, `ignored_releases.json`), and initial [`build.sh`](build.sh) signing/notarization workflow (`068b595`).
-  - Compacted table UI, added update-source tooltips, and added `xcrun stapler staple` + release zip creation in [`build.sh`](build.sh) (`68e0ce9`, `v0.3.0`; `25286e0`, `v0.4.0`).
-  - Added freemium scan usage limits and Pro license activation flow, initially with LemonSqueezy (`87802dd`) and then migrated to Gumroad license verification (`438d671`, `2da08c8`, `v0.5.3`).
+  - Added `get_npm_tools()`, `get_pipx_tools()`, `get_brew_formulae()`, and `/api/update_cli` AppleScript Terminal execution, updated `macappstore://apps.apple.com/app/id...` links, and added `BETA-TEST-2026` license bypass in [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), and [`build.sh`](build.sh) (`ea1d3a8`).
 
-### 2026-07-27 to 2026-08-06 (America/Denver, MDT) — Initial Architecture, `py2app` Bundle & `v0.2.0` Scan History
-- **Builder / Tool**: Unknown
-- **Execution Surface & Editor**: GitHub web UI for initial repository bootstrap (`f4a873e`, **Observed**); Unknown for subsequent commits (`ea79d2d`..`a2f2a52`).
-- **Model / Mode**: Unknown
-- **Human Involvement**: Repository created and commits authored under Ron Stauffer's Git identity (**Observed**); exact split between human code authorship and AI assistance is **Unknown**.
+### 2026-08-22 to 2026-09-06 (America/Denver, MDT) — `v0.5.0` to `v0.5.3` Freemium Scan Limits & Gumroad Licensing Migration
+- **Session**: *Local Lite Version Upgrade Issues* (**Observed**)
+- **Builder / Tool**: Google Antigravity (**Observed**)
+- **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
+- **Model / Mode**: Gemini 3.1 Pro (High) (**Observed**)
+- **Human Involvement**: Ron Stauffer reported local trial/lite state issues and directed migrating license verification from LemonSqueezy to Gumroad, tested license key activation, and requested UI header adjustments (**Observed**).
 - **Contributions & References**:
-  - Initialized repository with [`LICENSE`](LICENSE) and [`README.md`](README.md) (`f4a873e`), followed by the core single-file [`app_mechanic.py`](app_mechanic.py) scanner and local glassmorphic HTML/JS dashboard (`ea79d2d`).
-  - Added `py2app` bundle configuration ([`setup.py`](setup.py), [`AppMechanic.icns`](AppMechanic.icns), [`icon.jpg`](icon.jpg)), single-instance port check, and project documentation ([`NOTES.md`](NOTES.md), [`README.md`](README.md)) (`ae0ac28`).
-  - Restricted HTTP server binding strictly to `127.0.0.1` (`e3aa447`).
-  - Added persistent Scan History Log (`history.json`) and updated documentation (`1e0d183`, tag `v0.2.0`; `0abb027`; `a2f2a52`).
+  - Migrated `/api/activate` from LemonSqueezy to Gumroad's `/v2/licenses/verify` API, refined the Unlock Pro modal, and updated header layout in [`app_mechanic.py`](app_mechanic.py) (`438d671`, `2da08c8`, tag `v0.5.3`).
+
+### 2026-08-17 to 2026-08-19 (America/Denver, MDT) — `v0.3.0` to `v0.5.0` Auto-Updater Filtering, Launch/Ignore Actions, MAS Detection & Freemium Model
+- **Session**: *App Mechanic Feature Requests* (**Observed**)
+- **Builder / Tool**: Google Antigravity (**Observed**)
+- **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
+- **Model / Mode**: Gemini 3.1 Pro (High) (**Observed**)
+- **Human Involvement**: Ron Stauffer outlined a 6-part feature roadmap (fixing auto-updater false positives like Obsidian, adding a Launch button, checking Mac App Store apps, displaying the macOS version and system update status, ignoring specific releases, and linking to maker homepages), and directed introducing the initial freemium licensing flow (**Observed**).
+- **Contributions & References**:
+  - Added auto-updater recognition, unstable cask filtering, install method badges (`Mac App Store`, `Homebrew`, `Manual / OS`), `/api/launch`, `/api/ignore` & `/api/unignore`, macOS software update detection (`com.apple.SoftwareUpdate.plist`), app homepage links, and initial freemium licensing (`068b595`, `68e0ce9` `v0.3.0`, `25286e0` `v0.4.0`, `87802dd` `v0.5.0`).
+
+### 2026-07-27 to 2026-08-11 (America/Denver, MDT) — `v0.1.0` to `v0.2.0` Initial Scanner, `py2app` Packaging, Code Signing & Scan History
+- **Session**: *App Mechanic Project Overview* (`2026-07-28` to `2026-08-11`, **Observed**; follows `2026-07-27` initial repository bootstrap `f4a873e` and core script commit `ea79d2d`)
+- **Builder / Tool**: Google Antigravity (**Observed** for `ae0ac28`..`a2f2a52`; GitHub web UI for `f4a873e`)
+- **Execution Surface & Editor**: Google Antigravity desktop application on macOS (**Observed**)
+- **Model / Mode**: Unknown exact model string (session predates explicit `Model Selection` log entries in Antigravity transcripts)
+- **Human Involvement**: Ron Stauffer initialized the repository, tested version detection accuracy, directed packaging into a standalone macOS `.app` bundle with custom icon, configured Apple Developer ID signing and notarization, and requested the persistent 50-scan history log (**Observed**).
+- **Contributions & References**:
+  - Packaged [`app_mechanic.py`](app_mechanic.py) with `py2app` ([`setup.py`](setup.py), [`AppMechanic.icns`](AppMechanic.icns), [`icon.jpg`](icon.jpg)), added single-instance localhost check, documented architecture in [`NOTES.md`](NOTES.md) and [`README.md`](README.md) (`ae0ac28`), restricted server binding to `127.0.0.1` (`e3aa447`), and added the 50-scan persistent history log (`1e0d183`, tag `v0.2.0`; `0abb027`; `a2f2a52`).
