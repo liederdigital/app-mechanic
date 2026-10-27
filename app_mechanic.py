@@ -424,7 +424,7 @@ def get_ai_cli_tools():
                 "status": status,
                 "source": "NousResearch Git",
                 "install_method": "AI CLI",
-                "update_cmd": "hermes update",
+                "update_cmd": "pgrep -x Hermes >/dev/null && { killall Hermes; hermes update --yes && open -a Hermes; } || hermes update --yes",
                 "homepage": "https://github.com/NousResearch/hermes-agent",
                 "type": "cli"
             })
@@ -553,7 +553,7 @@ def get_ai_cli_tools():
             "bins": ["opencode"],
             "display": "OpenCode AI (opencode)",
             "kind": "npm",
-            "target": "opencode-ai",
+            "target": "@opencode/cli",
             "source": "OpenCode NPM",
             "update_cmd": "opencode upgrade",
             "homepage": "https://opencode.ai"
@@ -942,6 +942,13 @@ def run_scan():
                 with open(plist_path, 'rb') as f:
                     plist = plistlib.load(f)
                     installed_ver = str(plist.get("CFBundleShortVersionString") or plist.get("CFBundleVersion") or "Unknown")
+                    if installed_ver in ("0.0.0", "Unknown") and plist.get("CFBundleIdentifier") == "com.nousresearch.hermes":
+                        _, hermes_bin = find_cli_bin("hermes")
+                        if hermes_bin:
+                            h_res = subprocess.run([hermes_bin, "--version"], capture_output=True, text=True, timeout=5)
+                            h_match = re.search(r'v(\d+\.\d+\.\d+)', h_res.stdout)
+                            if h_match:
+                                installed_ver = h_match.group(1)
             except Exception:
                 pass
 
@@ -1051,7 +1058,7 @@ def run_scan():
         cli_items = []
         ai_tools = get_ai_cli_tools()
         cli_items.extend(ai_tools)
-        ai_covered = {"mistral-vibe", "kimi-cli", "aider-chat", "letta", "openhands-ai", "@anthropic-ai/claude-code", "@openai/codex", "@google/gemini-cli", "@sourcegraph/amp", "opencode-ai", "@qwen-code/qwen-code", "cline", "@kilocode/cli", "@mariozechner/pi-coding-agent", "@github/copilot", "openclaw"}
+        ai_covered = {"mistral-vibe", "kimi-cli", "aider-chat", "letta", "openhands-ai", "@anthropic-ai/claude-code", "@openai/codex", "@google/gemini-cli", "@sourcegraph/amp", "@opencode/cli", "opencode-ai", "@qwen-code/qwen-code", "cline", "@kilocode/cli", "@mariozechner/pi-coding-agent", "@github/copilot", "openclaw"}
         for t in get_uv_tools():
             if t["name"] not in ai_covered:
                 cli_items.extend([t])

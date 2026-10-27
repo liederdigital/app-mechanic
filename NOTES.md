@@ -29,6 +29,7 @@ App Mechanic (`v0.6.3`) is a zero-dependency macOS utility written in pure Pytho
    - `usage.json`: Free tier scan counter (3 free GUI scans).
    - `ignored_releases.json`: Version-specific ignored updates (`🚫 Ignore`, counted under `🟡 Ignored`).
    - `false_alarms.json`: Persistent catalog-mismatch overrides (`🚩 False Alarm`, counted as green `🟢 Up to Date` and paired with a 1-click GitHub Issue / Email inaccuracy report modal).
+   - Known upstream false alarms, split branches, and catalog mismatches are logged in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
 
 ## Packaging & Notarization (`build.sh`)
 - Bundles `app_mechanic.py` into a universal macOS `.app` (`LSUIElement: True`) via `py2app`.
