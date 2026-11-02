@@ -35,3 +35,13 @@ App Mechanic (`v0.6.5`) is a zero-dependency macOS utility written in pure Pytho
 - Bundles `app_mechanic.py` into a universal macOS `.app` (`LSUIElement: True`) via `py2app`.
 - Signs all Mach-O binaries, frameworks, and bundle resources with `Developer ID Application: Lieder Digital, LLC (W6YRSA9Z5F)` (`--options runtime --timestamp`).
 - Submits to Apple Notary Service via `xcrun notarytool submit ... --wait` and staples the ticket via `xcrun stapler staple "dist/App Mechanic.app"`.
+
+## Colophon
+
+This project keeps COLOPHON.md, a short record of how it was made.
+Agents update it themselves, in the same commit or pull request as their
+work: add a row when the tool, model, model setting, or computer changes,
+when a new phase of work starts, when you review someone else's work, and
+before each release. Never hold up a commit for it. Follow the instructions
+at https://colophon.md/instructions.md.
+
