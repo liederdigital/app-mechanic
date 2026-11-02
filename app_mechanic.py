@@ -79,7 +79,7 @@ cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.4"
+APP_VERSION = "0.6.5"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -1183,6 +1183,27 @@ def run_scan():
             })
             continue
 
+        # Mac App Store apps (verified via Contents/_MASReceipt) are updated strictly through the
+        # Mac App Store (`mas outdated`), not Homebrew Cask — comparing MAS bundles against Cask
+        # produces false alarms when direct-download Cask builds roll out ahead of App Store review
+        # (e.g. WhatsApp MAS 26.43.75 vs Homebrew Cask 26.44.12).
+        if install_method == "Mac App Store":
+            mas_app_id = mas_installed.get(name_clean.lower())
+            mas_homepage = f"macappstore://apps.apple.com/app/id{mas_app_id}" if mas_app_id else "macappstore://showUpdatesPage"
+            report_data.append({
+                "name": display_name,
+                "launch_name": name_clean,
+                "installed": installed_ver,
+                "latest": installed_ver,
+                "status": "up_to_date",
+                "source": "Mac App Store",
+                "install_method": install_method,
+                "homepage": mas_homepage,
+                "mas_id": mas_app_id,
+                "type": "gui"
+            })
+            continue
+
         # Hermes Desktop (`com.nousresearch.hermes`): managed via `hermes update` (NousResearch Git),
         # not the community `hermes-desktop` cask which lags or mismatches local Electron builds (`0.0.0` / `0.0.1`).
         if bundle_id == "com.nousresearch.hermes":
@@ -1258,10 +1279,14 @@ def run_scan():
                 elif p_late_padded > p_inst_padded:
                     # Only include apps here whose Info.plist version stays frozen while auto-updating internally
                     # or whose upstream auto-update channel lags behind Homebrew Cask on minor patch bumps.
-                    auto_updaters = {'opera', 'grok bot'}
+                    # Descript's Electron shell stamps 2.22.1 in Info.plist while its web/app engine (114.x) updates internally.
+                    auto_updaters = {'opera', 'grok bot', 'descript'}
                     if name_clean.lower() in auto_updaters:
-                        # Assume the app has auto-updated itself to the latest version
-                        installed_ver = latest_ver
+                        # For Descript, keep showing the actual bundle shell version or align cleanly without false alarm
+                        if name_clean.lower() != 'descript':
+                            installed_ver = latest_ver
+                        else:
+                            latest_ver = installed_ver
                         status = "up_to_date"
                     # Xmind 26.x -> 27.x: Xmind's in-app updater keeps 26.x on its maintenance branch (26.05.01107)
                     # and does not auto-upgrade across major year-version jumps unless manually installed.

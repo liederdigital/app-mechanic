@@ -135,6 +135,28 @@ When an app reports a mismatch that is not a bug in App Mechanic’s parser, but
 
 ---
 
+### 7. Descript (`descript`) & Mac App Store vs. Homebrew Cask Split (`whatsapp`)
+* **Report Date:** 2026-11-02
+* **Apps:** `Descript` (`/Applications/Descript.app`, `com.descript.beachcube`) & `WhatsApp` (`/Applications/WhatsApp.app`, `net.whatsapp.WhatsApp`)
+* **Installed Versions:** `2.22.1` (`Descript`) & `26.43.75` (`WhatsApp` via Mac App Store)
+* **Reported Latest:** `114.0.4` (`Descript` Homebrew Cask) & `26.44.12` (`WhatsApp` Homebrew Cask)
+* **Catalog Source:** Homebrew Cask (`descript` / `whatsapp`)
+* **Install Method:** Manual / OS (`Descript`) & Mac App Store (`WhatsApp`)
+* **Classification:** Electron Shell vs. Web Engine Version Split (`Descript`) & Mac App Store Receipt Isolation (`WhatsApp`)
+
+#### Upstream Context & Root Cause
+1. **Descript (`com.descript.beachcube`):**
+   * Descript's macOS DMG (`Descript-114.0.4-release.20250509.32955-arm64.dmg`) is versioned after its web/cloud application engine (`114.0.4`), which updates dynamically inside the Electron app, while the outer Electron launcher bundle stamps `CFBundleShortVersionString = "2.22.1"` and `CFBundleVersion = "2.22.1"` in `Info.plist` (verified by `brew info --cask --json=v2 descript` reporting `bundle_short_version: "2.22.1"` for cask `114.0.4`).
+2. **WhatsApp (`net.whatsapp.WhatsApp`) & Mac App Store Apps:**
+   * When an app is installed from the Mac App Store (`Contents/_MASReceipt` present), its updates are delivered exclusively through the Mac App Store (`mas outdated`).
+   * Previously, if a Mac App Store app was not in `mas outdated`, `run_scan()` fell through to `resolve_cask_info()` and compared the Mac App Store bundle against Homebrew Cask's direct-download feed (`whatsapp` cask `26.44.12` vs. Mac App Store `26.43.75`), causing a false alarm whenever direct-download builds shipped ahead of Apple App Store review.
+
+#### App Mechanic Handling
+* **Descript:** Added `'descript'` to `auto_updaters` in `app_mechanic.py` so its frozen Electron shell version (`2.22.1`) is not falsely flagged against the `114.x` web engine cask string.
+* **Mac App Store Isolation:** Updated `run_scan()` so any app with `install_method == "Mac App Store"` (`Contents/_MASReceipt`) is checked exclusively against `mas outdated` and reported with `source: "Mac App Store"` rather than falling through to Homebrew Cask.
+
+---
+
 ## Report Entry Template
 
 For new reports received via GitHub Issues or Email:

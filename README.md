@@ -1,4 +1,4 @@
-# App Mechanic (`v0.6.4`)
+# App Mechanic (`v0.6.5`)
 
 ![App Mechanic Icon](icon.jpg)
 
