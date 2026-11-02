@@ -15,17 +15,71 @@ import socketserver
 import threading
 import ssl
 
-# Ensure Homebrew and ~/.local/bin are in the PATH for bundled apps
-for extra_bin in ["/opt/homebrew/bin", "/usr/local/bin", os.path.expanduser("~/.local/bin")]:
-    if extra_bin not in os.environ.get("PATH", ""):
+# Ensure Homebrew, ~/.local/bin, and keg-only / version-managed Node bins are in the PATH for bundled apps
+import glob as _glob
+
+def _discover_extra_bin_dirs():
+    dirs = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        os.path.expanduser("~/.local/bin"),
+    ]
+    for pattern in [
+        "/opt/homebrew/opt/node*/bin",
+        "/usr/local/opt/node*/bin",
+        os.path.expanduser("~/.nvm/versions/node/*/bin"),
+        os.path.expanduser("~/.volta/bin"),
+        os.path.expanduser("~/.fnm/current/bin"),
+        os.path.expanduser("~/.asdf/shims"),
+        os.path.expanduser("~/.local/share/mise/shims"),
+    ]:
+        dirs.extend(sorted(_glob.glob(pattern), reverse=True))
+    return dirs
+
+for extra_bin in _discover_extra_bin_dirs():
+    if os.path.isdir(extra_bin) and extra_bin not in os.environ.get("PATH", ""):
         os.environ["PATH"] = extra_bin + os.pathsep + os.environ.get("PATH", "")
+
+def get_node_bin_dirs():
+    """Return directories containing a runnable `node` binary, preferring Homebrew/system installs."""
+    candidates = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+    ]
+    for pattern in [
+        "/opt/homebrew/opt/node*/bin",
+        "/usr/local/opt/node*/bin",
+        os.path.expanduser("~/.nvm/versions/node/*/bin"),
+        os.path.expanduser("~/.volta/bin"),
+        os.path.expanduser("~/.fnm/current/bin"),
+    ]:
+        candidates.extend(sorted(_glob.glob(pattern), reverse=True))
+    candidates.append(os.path.expanduser("~/.local/bin"))
+    valid_dirs = []
+    for d in candidates:
+        node_path = os.path.join(d, "node")
+        try:
+            if os.path.exists(node_path) and os.access(node_path, os.X_OK):
+                if d not in valid_dirs:
+                    valid_dirs.append(d)
+        except OSError:
+            pass
+    return valid_dirs
+
+def wrap_cli_cmd_with_node_path(cmd):
+    """Ensure Terminal commands that invoke npm/node/npx can find `node` even when node@XX is keg-only."""
+    node_dirs = get_node_bin_dirs()
+    if not node_dirs:
+        return cmd
+    path_prefix = ":".join(node_dirs)
+    return f'export PATH="{path_prefix}:$PATH"; {cmd}'
 
 # Global cache of the last scan data
 cached_scan_data = []
 last_scan_time = ""
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.3"
+APP_VERSION = "0.6.4"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -146,10 +200,48 @@ def get_mas_installed():
     return {}
 
 def parse_version(v):
-    m = re.search(r'^\d+(\.\d+)+', v.strip())
+    if not v:
+        return []
+    s = v.strip()
+    m = re.search(r'^\d+(\.\d+)+', s)
     if m:
         return [int(p) for p in m.group(0).split('.')]
+    # Support single-integer or prefixed build versions like "Build 4215", "4215", or "v0.21.2"
+    m2 = re.search(r'^(?:build\s+|v)?(\d+(?:\.\d+)*)\b', s, re.IGNORECASE)
+    if m2:
+        return [int(p) for p in m2.group(1).split('.')]
     return []
+
+def find_cli_bin(bin_names):
+    import shutil
+    if isinstance(bin_names, str):
+        bin_names = [bin_names]
+    local_bin = os.path.expanduser("~/.local/bin")
+    search_dirs = [
+        local_bin,
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        os.path.expanduser("~/.bun/bin"),
+        os.path.expanduser("~/.cargo/bin"),
+        os.path.expanduser("~/go/bin"),
+        os.path.expanduser("~/.opencode/bin"),
+        os.path.expanduser("~/.amp/bin"),
+        os.path.expanduser("~/.kimi/bin"),
+        os.path.expanduser("~/.grok/bin"),
+    ]
+    search_dirs.extend(get_node_bin_dirs())
+    for bname in bin_names:
+        for d in search_dirs:
+            cand = os.path.join(d, bname)
+            try:
+                if os.path.exists(cand) and os.access(cand, os.X_OK):
+                    return bname, cand
+            except OSError:
+                pass
+        w = shutil.which(bname)
+        if w:
+            return bname, w
+    return None, None
 
 def get_installed_casks():
     try:
@@ -164,13 +256,24 @@ def get_npm_tools():
     print("Checking NPM tools...")
     tools = []
     seen = set()
-    npm_bins = ["/opt/homebrew/bin/npm", os.path.expanduser("~/.local/bin/npm"), "/usr/local/bin/npm", "npm"]
+    npm_bins = ["/opt/homebrew/bin/npm", os.path.expanduser("~/.local/bin/npm"), "/usr/local/bin/npm"]
+    for nd in get_node_bin_dirs():
+        cand_npm = os.path.join(nd, "npm")
+        if cand_npm not in npm_bins:
+            npm_bins.append(cand_npm)
+    npm_bins.append("npm")
     checked_bins = set()
     for npm_bin in npm_bins:
-        real_bin = os.path.realpath(npm_bin) if os.path.exists(npm_bin) else npm_bin
+        try:
+            real_bin = os.path.realpath(npm_bin) if os.path.exists(npm_bin) else npm_bin
+        except OSError:
+            continue
         if real_bin in checked_bins:
             continue
-        if npm_bin != "npm" and not os.path.exists(npm_bin):
+        try:
+            if npm_bin != "npm" and not os.path.exists(npm_bin):
+                continue
+        except OSError:
             continue
         checked_bins.add(real_bin)
         try:
@@ -274,31 +377,6 @@ def get_ai_cli_tools():
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     local_bin = os.path.expanduser("~/.local/bin")
-    import shutil
-
-    def find_cli_bin(bin_names):
-        if isinstance(bin_names, str):
-            bin_names = [bin_names]
-        search_dirs = [
-            local_bin,
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            os.path.expanduser("~/.bun/bin"),
-            os.path.expanduser("~/.cargo/bin"),
-            os.path.expanduser("~/go/bin"),
-            os.path.expanduser("~/.opencode/bin"),
-            os.path.expanduser("~/.amp/bin"),
-            os.path.expanduser("~/.kimi/bin"),
-        ]
-        for bname in bin_names:
-            for d in search_dirs:
-                cand = os.path.join(d, bname)
-                if os.path.exists(cand) and os.access(cand, os.X_OK):
-                    return bname, cand
-            w = shutil.which(bname)
-            if w:
-                return bname, w
-        return None, None
 
     def version_is_newer(inst_str, late_str):
         if not inst_str or not late_str or inst_str == late_str:
@@ -856,6 +934,77 @@ def get_brew_formulae():
         print(f"Warning: Failed checking Homebrew Formulae: {e}")
     return tools
 
+def check_mothsoftware_kaju_update(installed_ver):
+    """Fetch Moth Software's signed Kaju feed (UpdateInformation.json) for Mail Archiver X."""
+    url = "https://www.mothsoftware.com/UpdateInformation.json"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, timeout=6, context=ctx) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        idx = raw.find("[")
+        if idx != -1:
+            entries = json.loads(raw[idx:])
+            best_ver = installed_ver
+            best_tuple = parse_version(installed_ver)
+            for entry in entries:
+                if isinstance(entry, dict):
+                    v = str(entry.get("Version", "")).strip()
+                    # Skip beta/alpha/dev entries (e.g. 8.3b1)
+                    if re.search(r'[dab]\d+', v, re.IGNORECASE):
+                        continue
+                    vt = parse_version(v)
+                    if vt and (not best_tuple or vt > best_tuple):
+                        best_tuple = vt
+                        best_ver = v
+            return best_ver
+    except Exception:
+        pass
+    return installed_ver
+
+# Registry of rebranded macOS applications so legacy and renamed `.app` bundles cross-match casks
+# and display the rebrand clearly in the dashboard.
+APP_REBRAND_MAP = {
+    "superset.app": {
+        "aliases": ["paradev.app", "superset.app"],
+        "tokens": ["paradev", "superset"],
+        "display_name": "Superset (now Paradev)",
+        "rebrand_url": "https://paradev.com"
+    },
+    "paradev.app": {
+        "aliases": ["paradev.app", "superset.app"],
+        "tokens": ["paradev", "superset"],
+        "display_name": "Paradev (formerly Superset)",
+        "rebrand_url": "https://paradev.com"
+    }
+}
+
+BUNDLE_ID_REBRAND_MAP = {
+    "com.superset.desktop": "superset.app",
+    "com.paradev.desktop": "paradev.app",
+}
+
+def resolve_jetbrains_product_version(bundle_path, short_ver):
+    """Extract the full X.Y.Z release version from JetBrains / Android Studio product-info.json when Info.plist only has X.Y."""
+    prod_info_path = os.path.join(bundle_path, "Contents", "Resources", "product-info.json")
+    if not os.path.exists(prod_info_path):
+        return short_ver
+    try:
+        with open(prod_info_path, "r", encoding="utf-8") as f:
+            pdata = json.load(f)
+        # dataDirectoryName is e.g. "AndroidStudio2026.2.2" -> "2026.2.2"
+        data_dir = str(pdata.get("dataDirectoryName") or "")
+        m = re.search(r'(\d{4}\.\d+(?:\.\d+)+)', data_dir)
+        if m:
+            ver_from_dir = m.group(1)
+            if len(parse_version(ver_from_dir)) > len(parse_version(short_ver)):
+                return ver_from_dir
+    except Exception:
+        pass
+    return short_ver
+
 def run_scan():
     global cached_scan_data, last_scan_time
     print("Scanning installed applications...")
@@ -892,6 +1041,7 @@ def run_scan():
         return True
             
     app_to_latest = {}
+    cask_by_token = {}
     
     def is_unstable_cask(t):
         unstable_keywords = ['beta', 'nightly', 'dev', 'alpha', 'pre', 'rc', 'edge', 'insiders', 'canary', 'ptb']
@@ -901,6 +1051,8 @@ def run_scan():
         token = cask.get("token", "")
         version = cask.get("version", "")
         homepage = cask.get("homepage", "")
+        if token:
+            cask_by_token[token.lower()] = (token, version, homepage)
         artifacts = cask.get("artifacts", [])
         for art in artifacts:
             if isinstance(art, dict) and "app" in art:
@@ -924,25 +1076,66 @@ def run_scan():
                             else:
                                 app_to_latest[app_key] = (token, version, homepage)
 
+    def resolve_cask_info(app_filename, b_id=""):
+        key = app_filename.lower()
+        rebrand_key = key if key in APP_REBRAND_MAP else BUNDLE_ID_REBRAND_MAP.get(b_id, "")
+        if rebrand_key and rebrand_key in APP_REBRAND_MAP:
+            rmeta = APP_REBRAND_MAP[rebrand_key]
+            for alias_app in rmeta.get("aliases", []):
+                if alias_app in app_to_latest:
+                    tok, ver, hp = app_to_latest[alias_app]
+                    return (tok, ver, rmeta.get("rebrand_url") or hp)
+            for tok_name in rmeta.get("tokens", []):
+                if tok_name in cask_by_token:
+                    tok, ver, hp = cask_by_token[tok_name]
+                    return (tok, ver, rmeta.get("rebrand_url") or hp)
+        return app_to_latest.get(key)
+
     report_data = []
     
     if not os.path.exists(apps_dir):
         print(f"Error: {apps_dir} directory not found.")
         return []
 
-    all_apps = sorted([f for f in os.listdir(apps_dir) if f.endswith(".app") and not f.startswith(".")])
+    top_entries = sorted(os.listdir(apps_dir))
+    top_app_names = {f.lower() for f in top_entries if f.endswith(".app") and not f.startswith(".")}
+    app_bundles = []
+    for entry in top_entries:
+        if entry.startswith("."):
+            continue
+        full_entry = os.path.join(apps_dir, entry)
+        if entry.endswith(".app"):
+            app_bundles.append((entry, full_entry))
+        elif os.path.isdir(full_entry) and entry.lower() != "utilities":
+            try:
+                for sub in sorted(os.listdir(full_entry)):
+                    if sub.endswith(".app") and not sub.startswith(".") and sub.lower() not in top_app_names:
+                        if any(skip in sub.lower() for skip in ("uninstaller", "distiller", "launcher")):
+                            continue
+                        app_bundles.append((sub, os.path.join(full_entry, sub)))
+            except Exception:
+                pass
 
-    for item in all_apps:
+    app_bundles.sort(key=lambda x: x[0].lower())
+
+    for item, bundle_path in app_bundles:
         name_clean = item[:-4]
-        plist_path = os.path.join(apps_dir, item, "Contents", "Info.plist")
+        plist_path = os.path.join(bundle_path, "Contents", "Info.plist")
         installed_ver = "Unknown"
+        bundle_id = ""
         
         if os.path.exists(plist_path):
             try:
                 with open(plist_path, 'rb') as f:
                     plist = plistlib.load(f)
-                    installed_ver = str(plist.get("CFBundleShortVersionString") or plist.get("CFBundleVersion") or "Unknown")
-                    if installed_ver in ("0.0.0", "Unknown") and plist.get("CFBundleIdentifier") == "com.nousresearch.hermes":
+                    bundle_id = str(plist.get("CFBundleIdentifier") or "")
+                    short_ver = str(plist.get("CFBundleShortVersionString") or "")
+                    bundle_ver = str(plist.get("CFBundleVersion") or "")
+                    installed_ver = short_ver or bundle_ver or "Unknown"
+                    if not parse_version(installed_ver) and parse_version(bundle_ver):
+                        installed_ver = bundle_ver
+                    installed_ver = resolve_jetbrains_product_version(bundle_path, installed_ver)
+                    if installed_ver in ("0.0.0", "0.0.1", "Unknown") and bundle_id == "com.nousresearch.hermes":
                         _, hermes_bin = find_cli_bin("hermes")
                         if hermes_bin:
                             h_res = subprocess.run([hermes_bin, "--version"], capture_output=True, text=True, timeout=5)
@@ -952,13 +1145,18 @@ def run_scan():
             except Exception:
                 pass
 
-        mas_receipt_path = os.path.join(apps_dir, item, "Contents", "_MASReceipt")
-        cask_info_check = app_to_latest.get(item.lower())
+        rebrand_key = item.lower() if item.lower() in APP_REBRAND_MAP else BUNDLE_ID_REBRAND_MAP.get(bundle_id, "")
+        rebrand_meta = APP_REBRAND_MAP.get(rebrand_key) if rebrand_key else None
+        display_name = rebrand_meta["display_name"] if rebrand_meta else name_clean
+        rebrand_tokens = set(rebrand_meta.get("tokens", [])) if rebrand_meta else set()
+
+        mas_receipt_path = os.path.join(bundle_path, "Contents", "_MASReceipt")
+        cask_info_check = resolve_cask_info(item, bundle_id)
         token_check = cask_info_check[0] if cask_info_check else None
 
         if os.path.exists(mas_receipt_path):
             install_method = "Mac App Store"
-        elif (token_check and token_check in installed_casks) or (name_clean.lower() in installed_casks):
+        elif (token_check and token_check in installed_casks) or (name_clean.lower() in installed_casks) or bool(rebrand_tokens & installed_casks):
             install_method = "Homebrew"
         else:
             install_method = "Manual / OS"
@@ -966,13 +1164,14 @@ def run_scan():
         if name_clean.lower() in mas_outdated:
             mas_info = mas_outdated[name_clean.lower()]
             status = "outdated"
-            if is_marked_false_alarm(name_clean, mas_info["installed"]):
+            if is_marked_false_alarm(display_name, mas_info["installed"]) or is_marked_false_alarm(name_clean, mas_info["installed"]):
                 status = "false_alarm"
-            elif ignored_releases.get(name_clean) == mas_info["latest"]:
+            elif ignored_releases.get(display_name) == mas_info["latest"] or ignored_releases.get(name_clean) == mas_info["latest"]:
                 status = "ignored"
             
             report_data.append({
-                "name": name_clean,
+                "name": display_name,
+                "launch_name": name_clean,
                 "installed": mas_info["installed"],
                 "latest": mas_info["latest"],
                 "status": status,
@@ -984,14 +1183,52 @@ def run_scan():
             })
             continue
 
-        cask_info = app_to_latest.get(item.lower())
+        # Hermes Desktop (`com.nousresearch.hermes`): managed via `hermes update` (NousResearch Git),
+        # not the community `hermes-desktop` cask which lags or mismatches local Electron builds (`0.0.0` / `0.0.1`).
+        if bundle_id == "com.nousresearch.hermes":
+            latest_ver = installed_ver
+            status = "up_to_date"
+            _, hermes_bin = find_cli_bin("hermes")
+            if hermes_bin:
+                try:
+                    h_res = subprocess.run([hermes_bin, "--version"], capture_output=True, text=True, timeout=5)
+                    h_out = h_res.stdout.strip()
+                    if "Update available" in h_out:
+                        latest_ver = "Update Available"
+                        status = "outdated"
+                except Exception:
+                    pass
+            elif installed_ver in ("0.0.0", "0.0.1"):
+                installed_ver = "Local Build"
+                latest_ver = "Local Build"
+            if status == "outdated":
+                if is_marked_false_alarm(display_name, installed_ver) or is_marked_false_alarm(name_clean, installed_ver):
+                    status = "false_alarm"
+                elif ignored_releases.get(display_name) == latest_ver or ignored_releases.get(name_clean) == latest_ver:
+                    status = "ignored"
+            report_data.append({
+                "name": display_name,
+                "launch_name": name_clean,
+                "installed": installed_ver,
+                "latest": latest_ver,
+                "status": status,
+                "source": "NousResearch Git",
+                "install_method": install_method,
+                "homepage": "https://github.com/NousResearch/hermes-agent",
+                "mas_id": mas_installed.get(name_clean.lower()),
+                "type": "gui"
+            })
+            continue
+
+        cask_info = resolve_cask_info(item, bundle_id)
         if cask_info:
             token, latest_raw, homepage = cask_info
-            latest_ver = latest_raw.split(',')[0]
+            latest_ver = latest_raw.split(',')[0].split('-')[0]
             
             if latest_ver == "latest":
                 report_data.append({
-                    "name": name_clean,
+                    "name": display_name,
+                    "launch_name": name_clean,
                     "installed": installed_ver,
                     "latest": "Latest",
                     "status": "up_to_date",
@@ -1007,48 +1244,93 @@ def run_scan():
             p_late = parse_version(latest_ver)
             
             if p_inst and p_late:
+                orig_inst_len = len(p_inst)
+                orig_late_len = len(p_late)
                 # Pad to same length to fix format mismatches (e.g. Opera 133.0 vs 133.0.5932.60)
-                max_len = max(len(p_inst), len(p_late))
-                p_inst.extend([0] * (max_len - len(p_inst)))
-                p_late.extend([0] * (max_len - len(p_late)))
+                max_len = max(orig_inst_len, orig_late_len)
+                p_inst_padded = p_inst + [0] * (max_len - orig_inst_len)
+                p_late_padded = p_late + [0] * (max_len - orig_late_len)
                 
-                if p_late > p_inst:
-                    auto_updaters = {'obsidian', 'discord', 'slack', 'notion', 'cursor', 'code', 'spotify', 'figma', 'whatsapp', 'opera', 'descript', '4k video downloader+', 'codexbar', 'chatgpt', 'claude', 'firefox', 'firefox developer edition'}
+                # If the app's version metadata only records a shorter prefix (e.g. Android Studio 2026.2.2 vs cask 2026.2.2.8)
+                # and all shared leading segments match, treat the sub-build suffix as matching the installed release.
+                if orig_inst_len >= 2 and orig_late_len > orig_inst_len and p_inst[:orig_inst_len] == p_late[:orig_inst_len]:
+                    status = "up_to_date"
+                elif p_late_padded > p_inst_padded:
+                    # Only include apps here whose Info.plist version stays frozen while auto-updating internally
+                    # or whose upstream auto-update channel lags behind Homebrew Cask on minor patch bumps.
+                    auto_updaters = {'opera', 'grok bot'}
                     if name_clean.lower() in auto_updaters:
                         # Assume the app has auto-updated itself to the latest version
                         installed_ver = latest_ver
                         status = "up_to_date"
+                    # Xmind 26.x -> 27.x: Xmind's in-app updater keeps 26.x on its maintenance branch (26.05.01107)
+                    # and does not auto-upgrade across major year-version jumps unless manually installed.
+                    elif name_clean.lower() == 'xmind' and p_inst[0] < p_late[0]:
+                        status = "up_to_date"
                     else:
                         status = "outdated"
-                        if is_marked_false_alarm(name_clean, installed_ver):
+                        if is_marked_false_alarm(display_name, installed_ver) or is_marked_false_alarm(name_clean, installed_ver):
                             status = "false_alarm"
-                        elif ignored_releases.get(name_clean) == latest_ver:
+                        elif ignored_releases.get(display_name) == latest_ver or ignored_releases.get(name_clean) == latest_ver:
                             status = "ignored"
                 else:
                     status = "up_to_date"
             else:
                 status = "up_to_date"
 
+            source_label = f"Homebrew Cask ({token})"
+            if rebrand_meta:
+                source_label = f"Homebrew Cask ({token} · Rebranded)"
+
             report_data.append({
-                "name": name_clean,
+                "name": display_name,
+                "launch_name": name_clean,
                 "installed": installed_ver,
                 "latest": latest_ver,
                 "status": status,
-                "source": f"Homebrew Cask ({token})",
+                "source": source_label,
                 "install_method": install_method,
                 "homepage": homepage,
                 "mas_id": mas_installed.get(name_clean.lower()),
                 "type": "gui"
             })
+        elif bundle_id == "com.mothsoftware.mailarchiverx" or name_clean.lower() == "mail archiver x":
+            latest_ver = check_mothsoftware_kaju_update(installed_ver)
+            p_inst = parse_version(installed_ver)
+            p_late = parse_version(latest_ver)
+            status = "up_to_date"
+            if p_inst and p_late:
+                max_len = max(len(p_inst), len(p_late))
+                p_inst.extend([0] * (max_len - len(p_inst)))
+                p_late.extend([0] * (max_len - len(p_late)))
+                if p_late > p_inst:
+                    status = "outdated"
+                    if is_marked_false_alarm(display_name, installed_ver) or is_marked_false_alarm(name_clean, installed_ver):
+                        status = "false_alarm"
+                    elif ignored_releases.get(display_name) == latest_ver or ignored_releases.get(name_clean) == latest_ver:
+                        status = "ignored"
+            report_data.append({
+                "name": display_name,
+                "launch_name": name_clean,
+                "installed": installed_ver,
+                "latest": latest_ver,
+                "status": status,
+                "source": "Moth Software Feed",
+                "install_method": install_method,
+                "homepage": "https://www.mothsoftware.com",
+                "mas_id": mas_installed.get(name_clean.lower()),
+                "type": "gui"
+            })
         else:
             report_data.append({
-                "name": name_clean,
+                "name": display_name,
+                "launch_name": name_clean,
                 "installed": installed_ver,
                 "latest": installed_ver,
                 "status": "up_to_date",
                 "source": "Native / OS",
                 "install_method": install_method,
-                "homepage": "",
+                "homepage": rebrand_meta["rebrand_url"] if rebrand_meta else "",
                 "mas_id": mas_installed.get(name_clean.lower()),
                 "type": "gui"
             })
@@ -1790,12 +2072,23 @@ def get_html_content():
                     <span class="search-icon">🔍</span>
                     <input type="text" id="searchInput" class="search-input" placeholder="Search applications...">
                 </div>
-                <div class="filter-buttons">
-                    <button class="btn active" id="btnAll" onclick="filterApps('all')">All Apps</button>
-                    <button class="btn" id="btnOutdated" onclick="filterApps('outdated')">Outdated</button>
-                    <button class="btn" id="btnUpToDate" onclick="filterApps('up_to_date')">Up to Date</button>
-                    <button class="btn" id="btnIgnored" onclick="filterApps('ignored')">Ignored</button>
-                    <button class="btn" id="btnFalseAlarm" onclick="filterApps('false_alarm')">False Alarms</button>
+                <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                        <label for="sortSelect" style="font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap;">Sort by:</label>
+                        <select id="sortSelect" onchange="changeSortMode(this.value)" style="background: rgba(15, 23, 42, 0.75); border: 1px solid var(--card-border); color: var(--text-primary); padding: 0.55rem 0.75rem; border-radius: 10px; font-size: 0.82rem; font-family: inherit; cursor: pointer;">
+                            <option value="default">Default (CLI First)</option>
+                            <option value="method">Install / Update Type</option>
+                            <option value="status">Status (Outdated First)</option>
+                            <option value="name">Application Name (A–Z)</option>
+                        </select>
+                    </div>
+                    <div class="filter-buttons">
+                        <button class="btn active" id="btnAll" onclick="filterApps('all')">All Apps</button>
+                        <button class="btn" id="btnOutdated" onclick="filterApps('outdated')">Outdated</button>
+                        <button class="btn" id="btnUpToDate" onclick="filterApps('up_to_date')">Up to Date</button>
+                        <button class="btn" id="btnIgnored" onclick="filterApps('ignored')">Ignored</button>
+                        <button class="btn" id="btnFalseAlarm" onclick="filterApps('false_alarm')">False Alarms</button>
+                    </div>
                 </div>
             </div>
 
@@ -1803,10 +2096,10 @@ def get_html_content():
                 <table id="appsTable">
                     <thead>
                         <tr>
-                            <th>Application</th>
-                            <th>Status</th>
+                            <th style="cursor: pointer; user-select: none;" onclick="toggleHeaderSort('name')" title="Click to sort by Application Name">Application <span id="sortIcon-name" style="opacity: 0.45;">↕</span></th>
+                            <th style="cursor: pointer; user-select: none;" onclick="toggleHeaderSort('status')" title="Click to sort by Update Status">Status <span id="sortIcon-status" style="opacity: 0.45;">↕</span></th>
                             <th>Versions</th>
-                            <th>Install Method</th>
+                            <th style="cursor: pointer; user-select: none;" onclick="toggleHeaderSort('method')" title="Click to group &amp; sort by Install / Update Type">Install Method <span id="sortIcon-method" style="opacity: 0.45;">↕</span></th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -1867,11 +2160,96 @@ def get_html_content():
         </div>
     </div>
 
+    <!-- Update Error / Issue Report Modal -->
+    <div id="updateErrorModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(6px);">
+        <div style="background: var(--bg-color); border: 1px solid rgba(244, 63, 94, 0.4); padding: 2rem; border-radius: 16px; width: 520px; max-width: 92%; text-align: left; box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
+            <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem;">
+                <span style="font-size: 1.4rem;">⚠️</span>
+                <h2 style="margin: 0; color: var(--text-primary); font-size: 1.3rem;">Report Update / App Error</h2>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 0.9rem; font-size: 0.88rem; line-height: 1.5;">
+                Log or report an update error for <strong id="ueModalAppName" style="color: var(--text-primary);">App</strong>. Paste any terminal output or error details below:
+            </p>
+            <textarea id="ueErrorNotes" rows="4" placeholder="Paste terminal error output or describe what went wrong (e.g. env: node: No such file or directory)..." oninput="refreshUpdateErrorLinks()" style="width: 100%; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--card-border); border-radius: 10px; padding: 0.75rem; color: var(--text-primary); font-family: monospace; font-size: 0.78rem; line-height: 1.45; margin-bottom: 0.85rem; resize: vertical;"></textarea>
+            <pre id="ueDiagnosticBox" style="background: rgba(15, 23, 42, 0.85); border: 1px solid var(--card-border); border-radius: 10px; padding: 0.85rem 1rem; color: #cbd5e1; font-family: monospace; font-size: 0.76rem; line-height: 1.5; overflow-x: auto; max-height: 170px; overflow-y: auto; margin-bottom: 1.15rem; white-space: pre-wrap;"></pre>
+            <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                <div style="display: flex; gap: 0.6rem;">
+                    <button id="ueLogLocalBtn" onclick="saveUpdateErrorLocal(this)" class="btn" style="flex: 1; background: rgba(244, 63, 94, 0.18); border-color: rgba(244, 63, 94, 0.45); color: #fecdd3; font-weight: 600;">📝 Log Error Locally</button>
+                    <button onclick="copyUpdateErrorDiag(this)" class="btn" style="flex: 1;">📋 Copy Error Report</button>
+                </div>
+                <div style="display: flex; gap: 0.6rem;">
+                    <a id="ueGithubBtn" href="#" target="_blank" class="btn" style="flex: 1; text-align: center; text-decoration: none; background: rgba(168, 85, 247, 0.18); border-color: rgba(168, 85, 247, 0.45); color: #e9d5ff; font-weight: 600;">🐙 Report on GitHub</a>
+                    <a id="ueEmailBtn" href="#" class="btn" style="flex: 1; text-align: center; text-decoration: none; background: rgba(59, 130, 246, 0.18); border-color: rgba(59, 130, 246, 0.45); color: #bfdbfe; font-weight: 600;">✉️ Report via Email</a>
+                </div>
+                <div style="display: flex; gap: 0.6rem;">
+                    <button onclick="document.getElementById('updateErrorModal').style.display='none'" class="btn" style="flex: 1; background: rgba(255,255,255,0.08); color: white;">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const isProUnlocked = {{IS_PRO_UNLOCKED}};
         let currentFilter = 'all';
+        let currentSort = 'default';
+        let sortAsc = true;
         let scanData = [];
+        let lastScanTimeStr = '';
         let scanHistory = {{HISTORY_JSON}};
+
+        const METHOD_SORT_ORDER = {
+            'Homebrew': 1,
+            'Homebrew CLI': 2,
+            'Mac App Store': 3,
+            'AI CLI': 4,
+            'NPM': 5,
+            'uv': 6,
+            'Pipx': 7,
+            'Manual / OS': 8
+        };
+
+        const STATUS_SORT_ORDER = {
+            'outdated': 1,
+            'ignored': 2,
+            'false_alarm': 3,
+            'up_to_date': 4
+        };
+
+        function changeSortMode(mode) {
+            currentSort = mode;
+            sortAsc = true;
+            updateSortIcons();
+            updateUI(scanData, lastScanTimeStr);
+        }
+
+        function toggleHeaderSort(column) {
+            if (currentSort === column) {
+                sortAsc = !sortAsc;
+            } else {
+                currentSort = column;
+                sortAsc = true;
+            }
+            const sel = document.getElementById('sortSelect');
+            if (sel) sel.value = column;
+            updateSortIcons();
+            updateUI(scanData, lastScanTimeStr);
+        }
+
+        function updateSortIcons() {
+            ['name', 'status', 'method'].forEach(col => {
+                const el = document.getElementById('sortIcon-' + col);
+                if (!el) return;
+                if (currentSort === col) {
+                    el.textContent = sortAsc ? '↑' : '↓';
+                    el.style.opacity = '1';
+                    el.style.color = 'var(--accent-blue)';
+                } else {
+                    el.textContent = '↕';
+                    el.style.opacity = '0.45';
+                    el.style.color = '';
+                }
+            });
+        }
 
         function updateHistoryUI(historyData) {
             const container = document.getElementById('historyList');
@@ -1899,12 +2277,14 @@ def get_html_content():
 
         function updateUI(data, scanTime, historyData) {
             scanData = data;
+            if (scanTime) {
+                lastScanTimeStr = scanTime;
+                document.getElementById('lblScanTime').textContent = scanTime;
+            }
             if (historyData) {
                 scanHistory = historyData;
             }
             updateHistoryUI(scanHistory);
-            
-            document.getElementById('lblScanTime').textContent = scanTime;
 
             const total = data.length;
             const outdated = data.filter(x => x.status === 'outdated').length;
@@ -1939,16 +2319,33 @@ def get_html_content():
             // Render table
             const tbody = document.getElementById('appsTableBody');
             tbody.innerHTML = '';
-            // Sort data to put CLI tools first
-            data.sort((a, b) => {
-                const aIsCLI = a.type === 'cli';
-                const bIsCLI = b.type === 'cli';
-                if (aIsCLI && !bIsCLI) return -1;
-                if (!aIsCLI && bIsCLI) return 1;
-                return a.name.localeCompare(b.name);
+            const dir = sortAsc ? 1 : -1;
+            const sortedData = [...data].sort((a, b) => {
+                if (currentSort === 'method') {
+                    const mA = METHOD_SORT_ORDER[a.install_method] || 99;
+                    const mB = METHOD_SORT_ORDER[b.install_method] || 99;
+                    if (mA !== mB) return (mA - mB) * dir;
+                    const sA = STATUS_SORT_ORDER[a.status] || 99;
+                    const sB = STATUS_SORT_ORDER[b.status] || 99;
+                    if (sA !== sB) return sA - sB;
+                    return a.name.localeCompare(b.name);
+                } else if (currentSort === 'status') {
+                    const sA = STATUS_SORT_ORDER[a.status] || 99;
+                    const sB = STATUS_SORT_ORDER[b.status] || 99;
+                    if (sA !== sB) return (sA - sB) * dir;
+                    return a.name.localeCompare(b.name);
+                } else if (currentSort === 'name') {
+                    return a.name.localeCompare(b.name) * dir;
+                } else {
+                    const aIsCLI = a.type === 'cli';
+                    const bIsCLI = b.type === 'cli';
+                    if (aIsCLI && !bIsCLI) return -1;
+                    if (!aIsCLI && bIsCLI) return 1;
+                    return a.name.localeCompare(b.name);
+                }
             });
             
-            data.forEach(row => {
+            sortedData.forEach(row => {
                 let statusLabel = 'Update Available';
                 let statusEmoji = '🔴';
                 
@@ -1964,18 +2361,21 @@ def get_html_content():
                 }
                 
                 const escName = row.name.replace(/'/g, "\\'");
+                const escLaunch = (row.launch_name || row.name).replace(/'/g, "\\'");
                 const escInst = (row.installed || '').replace(/'/g, "\\'");
                 const escLate = (row.latest || '').replace(/'/g, "\\'");
                 const escSrc = (row.source || '').replace(/'/g, "\\'");
                 const escMeth = (row.install_method || '').replace(/'/g, "\\'");
+                const escCmd = (row.update_cmd || '').replace(/'/g, "\\'");
 
-                let actionsHtml = `<div class="action-cell">`;
+                let actionsHtml = `<div class="action-cell" style="justify-content: space-between; width: 100%;">`;
+                actionsHtml += `<div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">`;
                 if (isProUnlocked) {
                     if (row.type !== 'cli') {
                         let masIdArg = (row.status === 'outdated' && row.mas_id) ? `'${row.mas_id}'` : `null`;
-                        actionsHtml += `<button class="action-btn" onclick="launchApp('${escName}', ${masIdArg})">🚀 Launch</button>`;
+                        actionsHtml += `<button class="action-btn" onclick="launchApp('${escLaunch}', ${masIdArg})">🚀 Launch</button>`;
                     } else if (row.status === 'outdated') {
-                        let cmdArg = row.update_cmd ? `'${row.update_cmd.replace(/'/g, "\\'")}'` : `''`;
+                        let cmdArg = row.update_cmd ? `'${escCmd}'` : `''`;
                         actionsHtml += `<button class="action-btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateCliApp('${escName}', '${escMeth}', ${cmdArg})">⬆️ Update</button>`;
                     }
                     if (row.status === 'outdated') {
@@ -1990,6 +2390,11 @@ def get_html_content():
                 } else {
                     actionsHtml += `<button class="action-btn" onclick="document.getElementById('unlockModal').style.display='flex'">🔒 Unlock Pro</button>`;
                 }
+                actionsHtml += `</div>`;
+                actionsHtml += `<div class="custom-tooltip-wrapper" style="margin-left: auto;">
+                    <button class="action-btn" style="padding: 0.3rem 0.5rem; border-color: rgba(244, 63, 94, 0.35); color: #fda4af; background: rgba(244, 63, 94, 0.08);" onclick="openUpdateErrorModal('${escName}', '${escInst}', '${escLate}', '${escSrc}', '${escMeth}', '${escCmd}')">⚠️</button>
+                    <span class="tooltip-popup">Report / Log Update Error</span>
+                </div>`;
                 actionsHtml += `</div>`;
                 
                 let appNameHtml = row.name;
@@ -2186,6 +2591,96 @@ def get_html_content():
                 })
                 .catch(err => {
                     console.error('Failed to flag false alarm:', err);
+                });
+        }
+
+        let currentUpdateErrorCtx = {};
+
+        function openUpdateErrorModal(appName, installedVer, latestVer, source, method, updateCmd) {
+            currentUpdateErrorCtx = { appName, installedVer, latestVer, source, method, updateCmd: updateCmd || '' };
+            document.getElementById('ueModalAppName').textContent = appName;
+            document.getElementById('ueErrorNotes').value = '';
+            const logBtn = document.getElementById('ueLogLocalBtn');
+            if (logBtn) logBtn.textContent = '📝 Log Error Locally';
+            refreshUpdateErrorLinks();
+            document.getElementById('updateErrorModal').style.display = 'flex';
+        }
+
+        function refreshUpdateErrorLinks() {
+            const c = currentUpdateErrorCtx;
+            const notes = (document.getElementById('ueErrorNotes').value || '').trim();
+            const diagLines = [
+                `App / Tool:       ${c.appName}`,
+                `Installed:        ${c.installedVer}`,
+                `Reported Latest:  ${c.latestVer}`,
+                `Catalog Source:   ${c.source}`,
+                `Install Method:   ${c.method}`
+            ];
+            if (c.updateCmd) {
+                diagLines.push(`Update Command:   ${c.updateCmd}`);
+            }
+            diagLines.push(`macOS Version:    {{MAC_OS}}`);
+            diagLines.push(`App Mechanic:     v{{APP_VERSION}}`);
+            if (notes) {
+                diagLines.push('');
+                diagLines.push('Error Output / Notes:');
+                diagLines.push(notes);
+            }
+            const diagText = diagLines.join('\\n');
+            document.getElementById('ueDiagnosticBox').textContent = diagText;
+
+            const ghTitle = `[Update Error] ${c.appName}: Failed updating ${c.installedVer} -> ${c.latestVer} (${c.method})`;
+            const ghLines = [
+                '### Update / Launch Error Report',
+                '',
+                '| Field | Value |',
+                '| :--- | :--- |',
+                `| **Application / Tool** | ${c.appName} |`,
+                `| **Installed Version** | ${c.installedVer} |`,
+                `| **Reported Latest Version** | ${c.latestVer} |`,
+                `| **Catalog Source** | ${c.source} |`,
+                `| **Install Method** | ${c.method} |`,
+                c.updateCmd ? `| **Update Command** | \\`${c.updateCmd}\\` |` : null,
+                '| **macOS Version** | {{MAC_OS}} |',
+                '| **App Mechanic Version** | v{{APP_VERSION}} |',
+                '',
+                '**Error Output / Details:**',
+                '```',
+                notes || '(Paste terminal or update error output here)',
+                '```'
+            ].filter(Boolean);
+            const ghBody = ghLines.join('\\n');
+            document.getElementById('ueGithubBtn').href = `https://github.com/liederdigital/app-mechanic/issues/new?title=${encodeURIComponent(ghTitle)}&body=${encodeURIComponent(ghBody)}`;
+
+            const emailSubject = `App Mechanic Update Error: ${c.appName} (${c.installedVer} -> ${c.latestVer})`;
+            const emailBody = ['Hi Lieder Digital team,', '', `I ran into an error updating ${c.appName} in App Mechanic:`, '', diagText].join('\\n');
+            document.getElementById('ueEmailBtn').href = `mailto:appsupport@liederdigital.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+        }
+
+        function copyUpdateErrorDiag(btn) {
+            const text = document.getElementById('ueDiagnosticBox').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 1600);
+            });
+        }
+
+        function saveUpdateErrorLocal(btn) {
+            const c = currentUpdateErrorCtx;
+            const notes = (document.getElementById('ueErrorNotes').value || '').trim();
+            const url = `/api/log_error?app=${encodeURIComponent(c.appName)}&installed=${encodeURIComponent(c.installedVer)}&latest=${encodeURIComponent(c.latestVer)}&source=${encodeURIComponent(c.source)}&method=${encodeURIComponent(c.method)}&cmd=${encodeURIComponent(c.updateCmd)}&notes=${encodeURIComponent(notes)}`;
+            fetch(url)
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        btn.textContent = '✓ Logged to update_errors.json!';
+                    } else {
+                        alert('Failed to log error: ' + res.message);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to log error:', err);
                 });
         }
 
@@ -2430,7 +2925,13 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                         subprocess.Popen(["open", f"macappstore://apps.apple.com/app/id{mas_id}"])
                     else:
                         app_path = os.path.join("/Applications", f"{app_name}.app")
-                        target = app_path if os.path.exists(app_path) else app_name
+                        sub_path = os.path.join("/Applications", app_name, f"{app_name}.app")
+                        if os.path.exists(app_path):
+                            target = app_path
+                        elif os.path.exists(sub_path):
+                            target = sub_path
+                        else:
+                            target = app_name
                         subprocess.Popen(["open", "-a", target])
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
@@ -2472,11 +2973,14 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                     cmd = custom_cmd
                 
                 if cmd:
+                    if any(tok in cmd for tok in ("npm ", "npx ", "node ", "openclaw-safe-update")):
+                        cmd = wrap_cli_cmd_with_node_path(cmd)
                     try:
+                        escaped_cmd = cmd.replace('\\', '\\\\').replace('"', '\\"')
                         applescript = f'''
                         tell application "Terminal"
                             activate
-                            do script "{cmd}"
+                            do script "{escaped_cmd}"
                         end tell
                         '''
                         subprocess.Popen(["osascript", "-e", applescript])
@@ -2499,6 +3003,58 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": "Missing parameters"}).encode('utf-8'))
+        elif self.path.startswith('/api/log_error'):
+            from urllib.parse import urlparse, parse_qs
+            query_components = parse_qs(urlparse(self.path).query)
+            app_name = query_components.get('app', [''])[0]
+            installed_v = query_components.get('installed', [''])[0]
+            latest_v = query_components.get('latest', [''])[0]
+            source = query_components.get('source', [''])[0]
+            method = query_components.get('method', [''])[0]
+            cmd = query_components.get('cmd', [''])[0]
+            notes = query_components.get('notes', [''])[0]
+            if app_name:
+                try:
+                    os.makedirs(HISTORY_DIR, exist_ok=True)
+                    err_file = os.path.join(HISTORY_DIR, "update_errors.json")
+                    err_data = []
+                    if os.path.exists(err_file):
+                        try:
+                            with open(err_file, 'r') as f:
+                                loaded = json.load(f)
+                                if isinstance(loaded, list):
+                                    err_data = loaded
+                        except Exception:
+                            pass
+                    err_data.append({
+                        "app": app_name,
+                        "installed": installed_v,
+                        "reported_latest": latest_v,
+                        "source": source,
+                        "install_method": method,
+                        "update_cmd": cmd,
+                        "notes": notes,
+                        "macos_version": platform.mac_ver()[0],
+                        "app_mechanic_version": APP_VERSION,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    err_data = err_data[-100:]
+                    with open(err_file, 'w') as f:
+                        json.dump(err_data, f, indent=2)
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Missing app parameter"}).encode('utf-8'))
         elif self.path.startswith('/api/ignore'):
             if not is_pro_unlocked():
                 self.send_response(403)

@@ -57,11 +57,81 @@ When an app reports a mismatch that is not a bug in App Mechanic’s parser, but
   pgrep -x Hermes >/dev/null && { killall Hermes; hermes update --yes && open -a Hermes; } || hermes update --yes
   ```
   If `Hermes.app` is running, App Mechanic cleanly quits it before running `hermes update --yes` so the rebuilt `/Applications/Hermes.app` bundle is always swapped in a single pass and then relaunched.
-* **GUI Version Resolution (`Hermes.app`):** When scanning `/Applications/Hermes.app` (`com.nousresearch.hermes`) and `CFBundleShortVersionString` is `"0.0.0"`, `app_mechanic.py` resolves the real installed version from `hermes --version` so the GUI row never reports `0.0.0`.
+* **GUI Version Resolution (`Hermes.app`):** When scanning `/Applications/Hermes.app` (`com.nousresearch.hermes`) and `CFBundleShortVersionString` is `"0.0.0"` or `"0.0.1"`, `app_mechanic.py` resolves the real installed version and update state directly from `hermes --version` (`NousResearch Git`) rather than comparing against the community `hermes-desktop` Homebrew Cask (`0.21.2`).
 * **Fast 1-Step Diagnostic & Recovery Runbook:**
   * **Check state in one command:** ` ~/.local/bin/hermes --version && tail -n 30 ~/.hermes/logs/desktop.log ~/.hermes/logs/update.log ~/.hermes/logs/errors.log`
   * **One-shot full update & app bundle sync:** `pgrep -x Hermes >/dev/null && { killall Hermes; ~/.local/bin/hermes update --yes && open -a /Applications/Hermes.app; } || ~/.local/bin/hermes update --yes`
   * **Key paths:** Checkout at `~/.hermes/hermes-agent`, OAuth state at `~/.hermes/auth.json` (and `~/.hermes/shared/nous_auth.json`), passive update check cache at `~/.hermes/source-checks/`, logs at `~/.hermes/logs/`.
+
+---
+
+### 3. Grok Bot (`grok-bot` / `com.anysphere.sand`)
+* **Report Date:** 2026-11-02
+* **App / Tool:** `Grok Bot` (`/Applications/Grok Bot.app`)
+* **Installed Version:** `0.78.1`
+* **Reported Latest:** `0.78.3`
+* **Catalog Source:** Homebrew Cask (`grok-bot`)
+* **Install Method:** Manual / OS
+* **Classification:** Staged Auto-Updater Rollout vs. Cask Livecheck Feed
+
+#### Upstream Context & Root Cause
+* `Grok Bot.app` (`com.anysphere.sand`) auto-updates via `api2.cursor.sh/updates/api/update/darwin-arm64/sand/.../stable`, which rolls out minor patch builds (`0.78.1` -> `0.78.3`) in staged waves or slightly out of sync with the Homebrew Cask `livecheck` scrape.
+* Because `Grok Bot` manages its own background updates silently, flagging minor cask diffs produces false alarms on machines where the in-app updater reports `0.78.1` as current.
+
+#### App Mechanic Handling
+* Added `'grok bot'` to `auto_updaters` in `app_mechanic.py` so background-managed minor build drift against `grok-bot` does not trigger false alarms.
+
+---
+
+### 4. Sublime Text, Mail Archiver X, & ChatGPT (Missed Updates)
+* **Report Date:** 2026-11-02
+* **Apps:** `Sublime Text` (`/Applications/Sublime Text.app`), `Mail Archiver X` (`/Applications/Mail Archiver X/Mail Archiver X.app`), `ChatGPT` (`/Applications/ChatGPT.app`)
+* **Classification:** Build-String Parsing, Subfolder Bundle Discovery + Kaju Feed, & Over-Broad Auto-Updater Suppression
+
+#### Upstream Context & Root Cause
+1. **Sublime Text (`com.sublimetext.4`):** Stores `CFBundleShortVersionString = "Build 4215"` and `CFBundleVersion = "4215"`, whereas Homebrew Cask (`sublime-text`) reports `"4215"`. Previously, `parse_version()` required at least one dot (`^\d+(\.\d+)+`), returning `[]` for both `"Build 4215"` and `"4215"` and defaulting to `up_to_date`.
+2. **Mail Archiver X (`com.mothsoftware.mailarchiverx`):** Installs inside a subfolder (`/Applications/Mail Archiver X/Mail Archiver X.app`) and is not in Homebrew Cask; it uses Moth Software's signed Kaju JSON feed (`https://www.mothsoftware.com/UpdateInformation.json`).
+3. **ChatGPT (`com.openai.codex`):** Updates `CFBundleShortVersionString` in `Info.plist` (`26.1027.x`), which Homebrew Cask (`chatgpt`) tracks accurately, but `'chatgpt'` was previously listed in `auto_updaters`, unconditionally masking real updates.
+
+#### App Mechanic Handling
+* **Sublime Text:** Updated `parse_version()` to parse single-integer and `"Build NNNN"` version strings, and fall back to `CFBundleVersion` when `CFBundleShortVersionString` is non-numeric.
+* **Mail Archiver X:** Extended `run_scan()` to discover `.app` bundles one folder deep inside `/Applications/<Subfolder>/` and added `check_mothsoftware_kaju_update()` to query `https://www.mothsoftware.com/UpdateInformation.json`.
+* **ChatGPT (and other plist-accurate apps):** Removed `'chatgpt'` (along with other apps that accurately update their `Info.plist`) from `auto_updaters` so legitimate updates are surfaced.
+
+---
+
+### 5. Android Studio (`android-studio`) & Xmind (`xmind`)
+* **Report Date:** 2026-11-02
+* **Apps:** `Android Studio` (`/Applications/Android Studio.app`, `com.google.android.studio`) & `Xmind` (`/Applications/Xmind.app`, `net.xmind.vana.app`)
+* **Installed Versions:** `2026.2` (`AndroidStudio2026.2.2` in `product-info.json`) & `26.05.01107`
+* **Reported Latest:** `2026.2.2.8` & `27.01.05086-202610272240`
+* **Catalog Source:** Homebrew Cask (`android-studio` / `xmind`)
+* **Install Method:** Manual / OS
+* **Classification:** Truncated `CFBundleShortVersionString` Prefix (`Android Studio`) & Major Year-Branch Auto-Updater Split (`Xmind`)
+
+#### Upstream Context & Root Cause
+1. **Android Studio (`com.google.android.studio`):**
+   * Stores only `CFBundleShortVersionString = "2026.2"` in `Info.plist`, while `Contents/Resources/product-info.json` stores `dataDirectoryName = "AndroidStudio2026.2.2"` (`buildNumber = "262.10968.63.2622.16730706"`, which is the exact build of Android Studio Rabbit 2 `2026.2.2.8`).
+   * Because `Info.plist` omits the `.2.8` patch/build segments, naive zero-padded comparison treated `[2026, 2, 0, 0] < [2026, 2, 2, 8]` as outdated even when the exact latest release was installed.
+2. **Xmind (`net.xmind.vana.app`):**
+   * Xmind 26 (`26.05.01107`) is the terminal release of the 2026 branch; Xmind's in-app updater does not auto-upgrade across major year versions (`26.x` -> `27.x`), and Homebrew Cask appends a build timestamp suffix (`-202610272240`).
+
+#### App Mechanic Handling
+* **JetBrains / Android Studio `product-info.json` Resolution:** Added `resolve_jetbrains_product_version()` in `app_mechanic.py` to extract the full `X.Y.Z` release from `Contents/Resources/product-info.json`, and updated version comparison so shorter `Info.plist` prefixes (`orig_inst_len >= 2`) that match all leading segments of a 4-part cask build string are treated as `up_to_date`.
+* **Xmind Major Branch Handling & Build Suffix Stripping:** Stripped trailing `-<timestamp>` build suffixes from cask versions (`27.01.05086`) and suppressed cross-year major branch alerts (`26.x` vs `27.x`) for Xmind when the installed 26.x branch reports itself up to date.
+
+---
+
+### 6. Superset -> Paradev Rebrand (`superset` / `paradev`)
+* **Report Date:** 2026-11-02
+* **App / Tool:** `Superset` (`/Applications/Superset.app`, `com.superset.desktop`) -> `Paradev` (`/Applications/Paradev.app`, `com.paradev.desktop`)
+* **Classification:** Upstream Application & Cask Rebrand
+
+#### Upstream Context & Root Cause
+* Superset (`superset.sh`) rebranded to **Paradev** (`paradev.com`, GitHub `ParadevAI/Paradev`). During a rebrand transition, users may have `Superset.app` or `Paradev.app` installed locally while Homebrew Cask transitions from `superset` to `paradev`.
+
+#### App Mechanic Handling
+* Added `APP_REBRAND_MAP` and `BUNDLE_ID_REBRAND_MAP` in `app_mechanic.py` so both `Superset.app` and `Paradev.app` cross-check `paradev` and `superset` casks/tokens, recognize either token in `brew list --cask`, and display as **`Superset (now Paradev)`** / **`Paradev (formerly Superset)`** while keeping `launch_name` mapped to the actual `.app` bundle on disk.
 
 ---
 

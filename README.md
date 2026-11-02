@@ -1,4 +1,4 @@
-# App Mechanic (`v0.6.3`)
+# App Mechanic (`v0.6.4`)
 
 ![App Mechanic Icon](icon.jpg)
 
@@ -44,7 +44,7 @@ App Mechanic uses only the Python standard library (`0` third-party Python packa
 
 App Mechanic is officially code-signed with a Developer ID by **Lieder Digital, LLC** and **Notarized by Apple**.
 
-1. Download the latest `AppMechanic-v0.6.3-Signed.zip` from the [GitHub Releases](https://github.com/liederdigital/app-mechanic/releases/latest) page (or [appmechanic.dev](https://appmechanic.dev)).
+1. Download the latest `AppMechanic-v0.6.4-Signed.zip` from the [GitHub Releases](https://github.com/liederdigital/app-mechanic/releases/latest) page (or [appmechanic.dev](https://appmechanic.dev)).
 2. Double-click to extract the `.zip`.
 3. Drag `App Mechanic.app` into your `/Applications` folder and double-click to launch!
 
