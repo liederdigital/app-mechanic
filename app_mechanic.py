@@ -1473,7 +1473,7 @@ def get_html_content():
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1320px;
             margin: 0 auto;
         }
 
@@ -1819,6 +1819,7 @@ def get_html_content():
             text-transform: uppercase;
             font-size: 0.75rem;
             letter-spacing: 0.05em;
+            white-space: nowrap;
         }
 
         td {
@@ -1904,6 +1905,7 @@ def get_html_content():
             display: inline-flex;
             align-items: center;
             gap: 0.4rem;
+            white-space: nowrap;
             transition: all 0.2s;
         }
 
@@ -1916,6 +1918,7 @@ def get_html_content():
             display: flex;
             gap: 0.5rem;
             align-items: center;
+            white-space: nowrap;
         }
 
         .custom-tooltip-wrapper {
