@@ -77,9 +77,11 @@ def wrap_cli_cmd_with_node_path(cmd):
 # Global cache of the last scan data
 cached_scan_data = []
 last_scan_time = ""
+is_scanning = False
+scan_lock = threading.Lock()
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.5"
+APP_VERSION = "0.6.6"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -108,7 +110,7 @@ def check_and_increment_scan_usage():
         except:
             pass
             
-    if usage.get("scan_count", 0) >= 3:
+    if usage.get("scan_count", 0) >= 5:
         return False
         
     usage["scan_count"] = usage.get("scan_count", 0) + 1
@@ -122,7 +124,8 @@ def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                return data[-10:] if isinstance(data, list) else []
         except:
             pass
     return []
@@ -131,7 +134,7 @@ def save_history(entry):
     os.makedirs(HISTORY_DIR, exist_ok=True)
     history = load_history()
     history.append(entry)
-    history = history[-50:]
+    history = history[-10:]
     try:
         with open(HISTORY_FILE, 'w') as f:
             json.dump(history, f)
@@ -212,6 +215,33 @@ def parse_version(v):
         return [int(p) for p in m2.group(1).split('.')]
     return []
 
+def find_npm_pkg_version(pkg_name):
+    """Return the highest installed version of an npm package across global node_modules directories."""
+    candidates = [
+        f"/opt/homebrew/lib/node_modules/{pkg_name}/package.json",
+        f"/usr/local/lib/node_modules/{pkg_name}/package.json",
+    ]
+    for pattern in [
+        f"/opt/homebrew/opt/node*/lib/node_modules/{pkg_name}/package.json",
+        f"/usr/local/opt/node*/lib/node_modules/{pkg_name}/package.json",
+        os.path.expanduser(f"~/.nvm/versions/node/*/lib/node_modules/{pkg_name}/package.json"),
+    ]:
+        candidates.extend(sorted(_glob.glob(pattern), reverse=True))
+    best_ver = None
+    best_tuple = []
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                with open(p, "r") as f:
+                    v = str(json.load(f).get("version", "")).strip()
+                vt = parse_version(v)
+                if v and (not best_ver or (vt and vt > best_tuple)):
+                    best_ver = v
+                    best_tuple = vt
+            except Exception:
+                pass
+    return best_ver
+
 def find_cli_bin(bin_names):
     import shutil
     if isinstance(bin_names, str):
@@ -219,6 +249,12 @@ def find_cli_bin(bin_names):
     local_bin = os.path.expanduser("~/.local/bin")
     search_dirs = [
         local_bin,
+    ]
+    # Prefer keg-only/version-managed Node bin dirs (e.g. /opt/homebrew/opt/node@24/bin)
+    # ahead of /opt/homebrew/bin so global npm updates are picked up immediately even if an older
+    # symlink remains in /opt/homebrew/bin.
+    search_dirs.extend(get_node_bin_dirs())
+    search_dirs.extend([
         "/opt/homebrew/bin",
         "/usr/local/bin",
         os.path.expanduser("~/.bun/bin"),
@@ -228,8 +264,7 @@ def find_cli_bin(bin_names):
         os.path.expanduser("~/.amp/bin"),
         os.path.expanduser("~/.kimi/bin"),
         os.path.expanduser("~/.grok/bin"),
-    ]
-    search_dirs.extend(get_node_bin_dirs())
+    ])
     for bname in bin_names:
         for d in search_dirs:
             cand = os.path.join(d, bname)
@@ -511,18 +546,37 @@ def get_ai_cli_tools():
 
     # 5. OpenClaw (`openclaw` / `openclaw-safe-update`)
     openclaw_updater = os.path.join(local_bin, "openclaw-safe-update")
-    openclaw_pkg = "/opt/homebrew/lib/node_modules/openclaw/package.json"
+    openclaw_pkg_candidates = [
+        "/opt/homebrew/lib/node_modules/openclaw/package.json",
+        "/usr/local/lib/node_modules/openclaw/package.json",
+    ]
+    for pattern in [
+        "/opt/homebrew/opt/node*/lib/node_modules/openclaw/package.json",
+        "/usr/local/opt/node*/lib/node_modules/openclaw/package.json",
+        os.path.expanduser("~/.nvm/versions/node/*/lib/node_modules/openclaw/package.json"),
+    ]:
+        openclaw_pkg_candidates.extend(sorted(_glob.glob(pattern), reverse=True))
     _, openclaw_bin = find_cli_bin("openclaw")
-    if os.path.exists(openclaw_updater) or os.path.exists(openclaw_pkg) or openclaw_bin:
+    if os.path.exists(openclaw_updater) or any(os.path.exists(p) for p in openclaw_pkg_candidates) or openclaw_bin:
         seen_bins.add("openclaw")
         try:
             inst_v = "Installed"
-            if os.path.exists(openclaw_pkg):
-                with open(openclaw_pkg, "r") as f:
-                    inst_v = json.load(f).get("version", "Installed")
+            # Pick the highest installed version across candidate package.json files (handles keg-only node@24 vs legacy /opt/homebrew)
+            best_pkg_v = None
+            for pkg_path in openclaw_pkg_candidates:
+                if os.path.exists(pkg_path):
+                    try:
+                        with open(pkg_path, "r") as f:
+                            cand_v = json.load(f).get("version")
+                            if cand_v and (not best_pkg_v or version_is_newer(best_pkg_v, cand_v)):
+                                best_pkg_v = cand_v
+                    except Exception:
+                        pass
+            if best_pkg_v:
+                inst_v = best_pkg_v
             elif openclaw_bin:
                 res = subprocess.run([openclaw_bin, "--version"], capture_output=True, text=True, timeout=5)
-                m = re.search(r'(\d+\.\d+\.\d+)', res.stdout)
+                m = re.search(r'(\d+\.\d+\.\d+(?:\.\d+)?)', res.stdout)
                 if m:
                     inst_v = m.group(1)
             late_v = inst_v
@@ -542,7 +596,7 @@ def get_ai_cli_tools():
                 "status": status,
                 "source": "OpenClaw NPM",
                 "install_method": "AI CLI",
-                "update_cmd": "openclaw-safe-update" if os.path.exists(openclaw_updater) else "npm install -g openclaw@latest",
+                "update_cmd": "openclaw-safe-update" if os.path.exists(openclaw_updater) else "npm install -g --force --allow-scripts=@google/genai,esbuild,koffi,protobufjs,openclaw openclaw@latest",
                 "homepage": "https://www.npmjs.com/package/openclaw",
                 "type": "cli"
             })
@@ -597,7 +651,7 @@ def get_ai_cli_tools():
             "kind": "npm",
             "target": "@google/gemini-cli",
             "source": "Google Gemini NPM",
-            "update_cmd": "npm install -g @google/gemini-cli@latest",
+            "update_cmd": "npm install -g --force @google/gemini-cli@latest",
             "homepage": "https://github.com/google-gemini/gemini-cli"
         },
         {
@@ -642,7 +696,7 @@ def get_ai_cli_tools():
             "kind": "npm",
             "target": "@qwen-code/qwen-code",
             "source": "Qwen Code NPM",
-            "update_cmd": "npm install -g @qwen-code/qwen-code@latest",
+            "update_cmd": "npm install -g --force @qwen-code/qwen-code@latest",
             "homepage": "https://github.com/QwenLM/qwen-code"
         },
         {
@@ -651,7 +705,7 @@ def get_ai_cli_tools():
             "kind": "npm",
             "target": "cline",
             "source": "Cline NPM",
-            "update_cmd": "npm install -g cline@latest",
+            "update_cmd": "npm install -g --force cline@latest",
             "homepage": "https://cline.bot"
         },
         {
@@ -660,7 +714,7 @@ def get_ai_cli_tools():
             "kind": "npm",
             "target": "@kilocode/cli",
             "source": "Kilo Code NPM",
-            "update_cmd": "npm install -g @kilocode/cli@latest",
+            "update_cmd": "npm install -g --force @kilocode/cli@latest",
             "homepage": "https://kilocode.ai"
         },
         {
@@ -669,7 +723,7 @@ def get_ai_cli_tools():
             "kind": "npm",
             "target": "@mariozechner/pi-coding-agent",
             "source": "Pi Agent NPM",
-            "update_cmd": "npm install -g @mariozechner/pi-coding-agent@latest",
+            "update_cmd": "npm install -g --force @mariozechner/pi-coding-agent@latest",
             "homepage": "https://www.npmjs.com/package/@mariozechner/pi-coding-agent"
         },
         {
@@ -678,7 +732,7 @@ def get_ai_cli_tools():
             "kind": "npm",
             "target": "@github/copilot",
             "source": "GitHub NPM",
-            "update_cmd": "npm install -g @github/copilot@latest",
+            "update_cmd": "npm install -g --force @github/copilot@latest",
             "homepage": "https://github.com/features/copilot/cli"
         },
         {
@@ -791,9 +845,15 @@ def get_ai_cli_tools():
             res = subprocess.run([bin_path, "--version"], capture_output=True, text=True, timeout=5)
             out = (res.stdout + " " + res.stderr).strip()
             m = re.search(r'(\d+\.\d+\.\d+(?:-[A-Za-z0-9\._]+)?)', out)
-            if not m:
+            inst_v = m.group(1) if m else None
+            # For npm-managed CLIs, also check installed package.json across Node prefixes
+            # in case a newer global install lives under keg-only node@XX while an older binary is in /opt/homebrew/bin
+            if entry["kind"] == "npm":
+                pkg_v = find_npm_pkg_version(entry["target"])
+                if pkg_v and (not inst_v or version_is_newer(inst_v, pkg_v)):
+                    inst_v = pkg_v
+            if not inst_v:
                 continue
-            inst_v = m.group(1)
             late_v = inst_v
             status = "up_to_date"
 
@@ -934,6 +994,23 @@ def get_brew_formulae():
         print(f"Warning: Failed checking Homebrew Formulae: {e}")
     return tools
 
+def check_app_mechanic_github_update(installed_ver):
+    """Fetch the latest App Mechanic release version from GitHub Releases."""
+    url = "https://api.github.com/repos/liederdigital/app-mechanic/releases/latest"
+    req = urllib.request.Request(url, headers={"User-Agent": "AppMechanic-macOS"})
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        tag = str(data.get("tag_name", "")).strip().lstrip("vV")
+        if tag and parse_version(tag):
+            return tag
+    except Exception:
+        pass
+    return installed_ver
+
 def check_mothsoftware_kaju_update(installed_ver):
     """Fetch Moth Software's signed Kaju feed (UpdateInformation.json) for Mail Archiver X."""
     url = "https://www.mothsoftware.com/UpdateInformation.json"
@@ -1006,6 +1083,15 @@ def resolve_jetbrains_product_version(bundle_path, short_ver):
     return short_ver
 
 def run_scan():
+    global cached_scan_data, last_scan_time, is_scanning
+    with scan_lock:
+        is_scanning = True
+        try:
+            return _run_scan_impl()
+        finally:
+            is_scanning = False
+
+def _run_scan_impl():
     global cached_scan_data, last_scan_time
     print("Scanning installed applications...")
     apps_dir = "/Applications"
@@ -1280,7 +1366,8 @@ def run_scan():
                     # Only include apps here whose Info.plist version stays frozen while auto-updating internally
                     # or whose upstream auto-update channel lags behind Homebrew Cask on minor patch bumps.
                     # Descript's Electron shell stamps 2.22.1 in Info.plist while its web/app engine (114.x) updates internally.
-                    auto_updaters = {'opera', 'grok bot', 'descript'}
+                    # Discord updates its internal module bundle on launch while Info.plist (0.0.420 vs 0.0.421) lags 1 build behind Cask.
+                    auto_updaters = {'opera', 'grok bot', 'descript', 'discord'}
                     if name_clean.lower() in auto_updaters:
                         # For Descript, keep showing the actual bundle shell version or align cleanly without false alarm
                         if name_clean.lower() != 'descript':
@@ -1344,6 +1431,33 @@ def run_scan():
                 "install_method": install_method,
                 "homepage": "https://www.mothsoftware.com",
                 "mas_id": mas_installed.get(name_clean.lower()),
+                "type": "gui"
+            })
+        elif bundle_id == "com.liederdigital.appmechanic" or name_clean.lower() == "app mechanic":
+            latest_ver = check_app_mechanic_github_update(installed_ver)
+            p_inst = parse_version(installed_ver)
+            p_late = parse_version(latest_ver)
+            status = "up_to_date"
+            if p_inst and p_late:
+                max_len = max(len(p_inst), len(p_late))
+                p_inst.extend([0] * (max_len - len(p_inst)))
+                p_late.extend([0] * (max_len - len(p_late)))
+                if p_late > p_inst:
+                    status = "outdated"
+                    if is_marked_false_alarm(display_name, installed_ver) or is_marked_false_alarm(name_clean, installed_ver):
+                        status = "false_alarm"
+                    elif ignored_releases.get(display_name) == latest_ver or ignored_releases.get(name_clean) == latest_ver:
+                        status = "ignored"
+            report_data.append({
+                "name": display_name,
+                "launch_name": name_clean,
+                "installed": installed_ver,
+                "latest": latest_ver,
+                "status": status,
+                "source": "GitHub Releases",
+                "install_method": install_method,
+                "homepage": "https://github.com/liederdigital/app-mechanic/releases/latest",
+                "mas_id": None,
                 "type": "gui"
             })
         else:
@@ -2020,7 +2134,16 @@ def get_html_content():
         </div>
         <header>
             <div class="title-area">
-                <h1>App Mechanic</h1>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                    <h1 style="margin-bottom: 0;">App Mechanic</h1>
+                    <button onclick="openSelfUpdateModal()" title="View version &amp; how to update App Mechanic" style="background: rgba(59, 130, 246, 0.14); border: 1px solid rgba(59, 130, 246, 0.35); color: #93c5fd; padding: 0.28rem 0.7rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; font-family: monospace; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s;">
+                        <span>v{{APP_VERSION}}</span>
+                        <span style="opacity: 0.75; font-family: sans-serif; font-size: 0.75rem;">ℹ️ How to Update</span>
+                    </button>
+                    <button id="header-update-pill" onclick="openSelfUpdateModal()" style="display: none; background: rgba(244, 63, 94, 0.18); border: 1px solid rgba(244, 63, 94, 0.5); color: #fda4af; padding: 0.28rem 0.75rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; cursor: pointer; align-items: center; gap: 0.35rem;">
+                        <span>🔴 Update Available (<span id="header-latest-ver">New</span>) — How to Update</span>
+                    </button>
+                </div>
                 <p>Track updates and versions of all your applications | macOS {{MAC_OS}}{{MAC_OS_UPDATE_BADGE}}</p>
             </div>
             <div class="header-actions">
@@ -2141,9 +2264,66 @@ def get_html_content():
         <footer style="margin-top: 3rem; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.5rem; display: flex; justify-content: center; text-align: center; color: var(--text-secondary); font-size: 0.8rem; padding-bottom: 2rem;">
             <div style="line-height: 1.8;">
                 © 2026 Lieder Digital, LLC. All rights reserved. <br>
-                <a href="https://appmechanic.dev?utm_source=app_mechanic_macos&utm_medium=desktop_app&utm_campaign=footer_link" target="_blank" style="color: inherit; text-decoration: underline;">App Mechanic</a> v{{APP_VERSION}} <span id="app-update-notice" style="display: none; color: var(--accent-red); margin-left: 0.5rem; font-weight: 500;">(Update Available! <a id="app-update-link" href="#" target="_blank" style="color: var(--accent-red); text-decoration: underline;">Download</a>)</span>
+                <a href="https://appmechanic.dev?utm_source=app_mechanic_macos&utm_medium=desktop_app&utm_campaign=footer_link" target="_blank" style="color: inherit; text-decoration: underline;">App Mechanic</a> v{{APP_VERSION}} · <a href="#" onclick="openSelfUpdateModal(); return false;" style="color: #93c5fd; text-decoration: underline;">How to Update</a> <span id="app-update-notice" style="display: none; color: var(--accent-red); margin-left: 0.5rem; font-weight: 500;">(Update Available! <a id="app-update-link" href="#" onclick="openSelfUpdateModal(); return false;" style="color: var(--accent-red); text-decoration: underline;">Download &amp; Instructions</a>)</span>
             </div>
         </footer>
+    </div>
+
+    <!-- Initial Scan Progress Overlay -->
+    <div id="initialScanModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11, 15, 25, 0.88); z-index: 1200; align-items: center; justify-content: center; backdrop-filter: blur(8px);">
+        <div style="background: rgba(20, 26, 46, 0.95); border: 1px solid rgba(59, 130, 246, 0.45); padding: 2.25rem 2rem; border-radius: 18px; width: 460px; max-width: 92%; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.7);">
+            <div style="width: 48px; height: 48px; border: 3px solid rgba(59, 130, 246, 0.25); border-top-color: var(--accent-blue); border-radius: 50%; margin: 0 auto 1.25rem auto; animation: spin 0.85s linear infinite;"></div>
+            <h2 style="margin: 0 0 0.6rem 0; color: var(--text-primary); font-size: 1.35rem;">App Mechanic is Scanning Your Mac...</h2>
+            <p style="color: var(--text-secondary); font-size: 0.92rem; line-height: 1.55; margin-bottom: 1rem;">
+                Hang tight! We're inspecting your installed applications, Mac App Store receipts, Homebrew Casks, and developer tools.
+            </p>
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.82rem; color: #93c5fd; line-height: 1.45;">
+                ⏱️ Depending on how many apps you have installed, this initial scan usually takes <strong>10–30 seconds</strong>. This page will update automatically as soon as it finishes!
+            </div>
+        </div>
+    </div>
+
+    <!-- App Mechanic Self-Update & Version Guide Modal -->
+    <div id="selfUpdateModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(6px);">
+        <div style="background: var(--bg-color); border: 1px solid rgba(59, 130, 246, 0.4); padding: 2rem; border-radius: 16px; width: 520px; max-width: 92%; text-align: left; box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <span style="font-size: 1.4rem;">🔧</span>
+                    <h2 style="margin: 0; color: var(--text-primary); font-size: 1.3rem;">About &amp; How to Update App Mechanic</h2>
+                </div>
+                <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); color: #93c5fd; padding: 0.25rem 0.65rem; border-radius: 999px; font-family: monospace; font-size: 0.82rem; font-weight: 600;">v{{APP_VERSION}}</span>
+            </div>
+            <p id="selfUpdateStatusText" style="color: var(--text-secondary); margin-bottom: 1.1rem; font-size: 0.9rem; line-height: 1.5;">
+                You are currently running <strong style="color: var(--text-primary);">App Mechanic v{{APP_VERSION}}</strong>. Follow these simple steps whenever you install a newer version:
+            </p>
+            <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid var(--card-border); border-radius: 12px; padding: 1.1rem 1.2rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.88rem; line-height: 1.5; color: #e2e8f0;">
+                <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                    <span style="background: rgba(59, 130, 246, 0.2); color: #93c5fd; font-weight: 700; min-width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.78rem; margin-top: 0.1rem;">1</span>
+                    <div><strong>Download the latest release ZIP</strong> using the blue button below (e.g. <code>AppMechanic-vX.Y.Z-Signed.zip</code>).</div>
+                </div>
+                <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                    <span style="background: rgba(244, 63, 94, 0.2); color: #fda4af; font-weight: 700; min-width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.78rem; margin-top: 0.1rem;">2</span>
+                    <div><strong>Quit App Mechanic first!</strong> Click the red <strong>🛑 Quit</strong> button in the top-right corner of this page (or below) before replacing the app, otherwise macOS won't let you overwrite it while it's running.</div>
+                </div>
+                <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                    <span style="background: rgba(59, 130, 246, 0.2); color: #93c5fd; font-weight: 700; min-width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.78rem; margin-top: 0.1rem;">3</span>
+                    <div><strong>Unzip &amp; drag into Applications:</strong> Open your <strong>Downloads</strong> folder (Safari unzips it automatically; if you see a <code>.zip</code> file, double-click it first). Drag the new <strong>App Mechanic.app</strong> into your <strong>Applications</strong> folder.</div>
+                </div>
+                <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                    <span style="background: rgba(16, 185, 129, 0.2); color: #6ee7b7; font-weight: 700; min-width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.78rem; margin-top: 0.1rem;">4</span>
+                    <div><strong>Click "Replace":</strong> When macOS asks if you want to Keep Both, Stop, or Replace, click <strong>Replace</strong>, then open <strong>App Mechanic</strong> from Applications!</div>
+                </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                <div style="display: flex; gap: 0.6rem;">
+                    <a id="selfUpdateDownloadBtn" href="https://github.com/liederdigital/app-mechanic/releases/latest" target="_blank" class="btn" style="flex: 1.3; text-align: center; text-decoration: none; background: var(--accent-blue); border-color: var(--accent-blue); color: white; font-weight: 600;">⬇️ Download Latest Release (.zip)</a>
+                    <button onclick="quitServer()" class="btn" style="flex: 1; background: rgba(244, 63, 94, 0.15); border-color: rgba(244, 63, 94, 0.4); color: #fda4af; font-weight: 600;">🛑 Quit App Mechanic Now</button>
+                </div>
+                <div style="display: flex; gap: 0.6rem;">
+                    <button onclick="document.getElementById('selfUpdateModal').style.display='none'" class="btn" style="flex: 1; background: rgba(255,255,255,0.08); color: white;">Close</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Unlock Modal -->
@@ -2398,11 +2578,15 @@ def get_html_content():
 
                 let actionsHtml = `<div class="action-cell" style="justify-content: space-between; width: 100%;">`;
                 actionsHtml += `<div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">`;
+                const isSelfRow = (row.name || '').toLowerCase() === 'app mechanic';
+                if (isSelfRow) {
+                    actionsHtml += `<button class="action-btn" style="border-color: rgba(59, 130, 246, 0.45); color: #93c5fd;" onclick="openSelfUpdateModal()">ℹ️ How to Update</button>`;
+                }
                 if (isProUnlocked) {
-                    if (row.type !== 'cli') {
+                    if (row.type !== 'cli' && !isSelfRow) {
                         let masIdArg = (row.status === 'outdated' && row.mas_id) ? `'${row.mas_id}'` : `null`;
                         actionsHtml += `<button class="action-btn" onclick="launchApp('${escLaunch}', ${masIdArg})">🚀 Launch</button>`;
-                    } else if (row.status === 'outdated') {
+                    } else if (row.status === 'outdated' && !isSelfRow) {
                         let cmdArg = row.update_cmd ? `'${escCmd}'` : `''`;
                         actionsHtml += `<button class="action-btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="updateCliApp('${escName}', '${escMeth}', ${cmdArg})">⬆️ Update</button>`;
                     }
@@ -2830,6 +3014,11 @@ def get_html_content():
             });
         }
 
+        function openSelfUpdateModal() {
+            const modal = document.getElementById('selfUpdateModal');
+            if (modal) modal.style.display = 'flex';
+        }
+
         function quitServer() {
             if (confirm("Are you sure you want to quit the App Mechanic server?")) {
                 fetch('/api/quit').then(() => {
@@ -2840,12 +3029,35 @@ def get_html_content():
             }
         }
 
-        // Initial load of cached data
-        fetch('/api/data')
-            .then(res => res.json())
-            .then(res => {
-                updateUI(res.data, res.scan_time, res.history);
-            });
+        // Initial load of cached data (polls while initial background startup scan is running)
+        function loadInitialData() {
+            fetch('/api/data')
+                .then(res => res.json())
+                .then(res => {
+                    const scanModal = document.getElementById('initialScanModal');
+                    const btn = document.getElementById('btnRefresh');
+                    if (res.scanning && (!res.data || res.data.length === 0)) {
+                        if (scanModal) scanModal.style.display = 'flex';
+                        if (btn) {
+                            btn.classList.add('loading');
+                            btn.disabled = true;
+                        }
+                        document.getElementById('lblScanTime').textContent = 'Scanning now...';
+                        setTimeout(loadInitialData, 1000);
+                    } else {
+                        if (scanModal) scanModal.style.display = 'none';
+                        if (btn) {
+                            btn.classList.remove('loading');
+                            btn.disabled = false;
+                        }
+                        updateUI(res.data, res.scan_time, res.history);
+                    }
+                })
+                .catch(() => {
+                    setTimeout(loadInitialData, 1500);
+                });
+        }
+        loadInitialData();
 
         // Check for App Mechanic self-updates
         fetch('https://api.github.com/repos/liederdigital/app-mechanic/releases/latest')
@@ -2866,10 +3078,34 @@ def get_html_content():
                         if (num1 > num2) { isNewer = true; break; }
                         if (num1 < num2) { break; }
                     }
+
+                    // Prefer direct Signed.zip asset link when available, falling back to release page
+                    let downloadUrl = data.html_url || 'https://github.com/liederdigital/app-mechanic/releases/latest';
+                    if (Array.isArray(data.assets)) {
+                        const zipAsset = data.assets.find(a => a.name && a.name.endsWith('.zip') && a.browser_download_url);
+                        if (zipAsset) downloadUrl = zipAsset.browser_download_url;
+                    }
+                    const dlBtn = document.getElementById('selfUpdateDownloadBtn');
+                    if (dlBtn) {
+                        dlBtn.href = downloadUrl;
+                        dlBtn.textContent = `⬇️ Download App Mechanic ${data.tag_name} (.zip)`;
+                    }
                     
                     if (isNewer) {
                         document.getElementById('app-update-notice').style.display = 'inline';
-                        document.getElementById('app-update-link').href = data.html_url;
+                        const headerPill = document.getElementById('header-update-pill');
+                        const headerVer = document.getElementById('header-latest-ver');
+                        if (headerVer) headerVer.textContent = data.tag_name;
+                        if (headerPill) headerPill.style.display = 'inline-flex';
+                        const statusTxt = document.getElementById('selfUpdateStatusText');
+                        if (statusTxt) {
+                            statusTxt.innerHTML = `<span style="color: var(--accent-red); font-weight: 600;">🔴 Update Available:</span> You are running <strong style="color: var(--text-primary);">v{{APP_VERSION}}</strong> and <strong style="color: #6ee7b7;">${data.tag_name}</strong> is ready to install! Follow these 4 steps:`;
+                        }
+                    } else {
+                        const statusTxt = document.getElementById('selfUpdateStatusText');
+                        if (statusTxt) {
+                            statusTxt.innerHTML = `<span style="color: var(--accent-green); font-weight: 600;">🟢 Up to Date:</span> You are running the latest version (<strong style="color: var(--text-primary);">v{{APP_VERSION}}</strong>). Whenever a new version comes out, here is how to update:`;
+                        }
                     }
                 }
             }).catch(e => console.error("Could not check for App Mechanic updates:", e));
@@ -2897,7 +3133,7 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        global cached_scan_data, last_scan_time
+        global cached_scan_data, last_scan_time, is_scanning
         if self.path == '/':
             self.send_response(200)
             self.send_header('Content-type', 'text/html; charset=utf-8')
@@ -2910,7 +3146,8 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             response = {
                 "data": cached_scan_data,
                 "scan_time": last_scan_time,
-                "history": load_history()
+                "history": load_history(),
+                "scanning": is_scanning
             }
             self.wfile.write(json.dumps(response).encode('utf-8'))
         elif self.path == '/api/scan':
@@ -2918,7 +3155,7 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_response(429)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({"status": "error", "message": "You have reached your free scan limit of 3 scans. Please upgrade to Pro to continue scanning."}).encode('utf-8'))
+                self.wfile.write(json.dumps({"status": "error", "message": "You have reached your free scan limit of 5 scans. Please upgrade to Pro to continue scanning."}).encode('utf-8'))
                 return
             new_data = run_scan()
             self.send_response(200)
@@ -2990,7 +3227,7 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             if app_name and install_method:
                 cmd = ""
                 if install_method == "NPM":
-                    cmd = f"npm install -g {app_name}"
+                    cmd = f"npm install -g --force {app_name}@latest"
                 elif install_method == "Pipx":
                     cmd = f"pipx upgrade {app_name}"
                 elif install_method == "uv":
@@ -3296,12 +3533,15 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
 def start_server(port=8000):
     handler = DashboardHTTPRequestHandler
-    socketserver.TCPServer.allow_reuse_address = True
     
     try:
-        with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
+        with ThreadedTCPServer(("127.0.0.1", port), handler) as httpd:
             print(f"==========================================")
             print(f"  Dashboard Server Running on port {port}")
             print(f"  Access UI at http://localhost:{port}")
@@ -3332,13 +3572,18 @@ def check_single_instance(port=8000):
             sys.exit(0)
 
 def main():
+    global is_scanning
     print("==========================================")
     print("            App Mechanic                  ")
     print("==========================================")
     
     check_single_instance(port=8000)
     
-    run_scan()
+    # Mark scanning true and launch the initial scan in a background thread so the
+    # browser dashboard opens immediately (<1s) with a live "Scanning your Mac..." modal
+    # instead of leaving the user with 20-30s of dead air.
+    is_scanning = True
+    threading.Thread(target=run_scan, daemon=True).start()
     start_server(port=8000)
 
 if __name__ == "__main__":

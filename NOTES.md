@@ -1,7 +1,7 @@
 # App Mechanic — Project Architecture & Engineering Notes
 
 ## Overview
-App Mechanic (`v0.6.5`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` (including 1-level app subfolders) and developer CLI toolchains, cross-references installed versions against Homebrew Casks, the Mac App Store (`mas`), Moth Software's Kaju feed, Homebrew Formulae, NPM, PyPI (`uv` / `pipx`), and 30+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
+App Mechanic (`v0.6.6`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` (including 1-level app subfolders) and developer CLI toolchains, cross-references installed versions against Homebrew Casks, the Mac App Store (`mas`), Moth Software's Kaju feed, Homebrew Formulae, NPM, PyPI (`uv` / `pipx`), and 30+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
 
 ## Repositories & Live Endpoints
 - **Core App Repository:** [`github.com/liederdigital/app-mechanic`](https://github.com/liederdigital/app-mechanic)
@@ -24,9 +24,9 @@ App Mechanic (`v0.6.5`) is a zero-dependency macOS utility written in pure Pytho
    - Deduplicates packages already covered by `get_ai_cli_tools()`.
    - Dispatches 1-click Terminal upgrades via `osascript` (`/api/update_cli`).
 5. **Local State & Overrides (`~/Library/Application Support/AppMechanic/`):**
-   - `history.json`: Rolling 50-scan history log.
+   - `history.json`: Rolling 10-scan history log.
    - `license.json`: Activated Gumroad Pro license state.
-   - `usage.json`: Free tier scan counter (3 free GUI scans).
+   - `usage.json`: Free tier scan counter (5 free GUI scans).
    - `ignored_releases.json`: Version-specific ignored updates (`🚫 Ignore`, counted under `🟡 Ignored`).
    - `false_alarms.json`: Persistent catalog-mismatch overrides (`🚩 False Alarm`, counted as green `🟢 Up to Date` and paired with a 1-click GitHub Issue / Email inaccuracy report modal).
    - Known upstream false alarms, split branches, and catalog mismatches are logged in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).

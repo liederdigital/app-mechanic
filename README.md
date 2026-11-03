@@ -1,4 +1,4 @@
-# App Mechanic (`v0.6.5`)
+# App Mechanic (`v0.6.6`)
 
 ![App Mechanic Icon](icon.jpg)
 
@@ -14,9 +14,9 @@ It serves a glassmorphic dark-mode dashboard directly on `http://localhost:8000`
 ## Features
 
 ### Free Starter Tier
-- **3 Free Full macOS GUI Scans:** Scans `/Applications` against Homebrew Casks and the Mac App Store (`mas`).
+- **5 Free Full macOS GUI Scans:** Scans `/Applications` against Homebrew Casks and the Mac App Store (`mas`).
 - **Smart Auto-Updater Filtering:** Recognizes self-updating apps (Cursor, VS Code, Obsidian, Slack, Discord, Claude, ChatGPT, Spotify, Figma, etc.) and filters out unstable `beta`, `nightly`, and `canary` casks.
-- **50-Scan Local History Log:** Tracks your overall system health percentage over time in `~/Library/Application Support/AppMechanic/history.json`.
+- **10-Scan Local History Log:** Tracks your overall system health percentage over time in `~/Library/Application Support/AppMechanic/history.json`.
 - **macOS System Update Detection:** Inspects `com.apple.SoftwareUpdate.plist` and displays a header badge when a macOS update is waiting.
 
 ### App Mechanic Pro (`$12` One-Time License via Gumroad)
@@ -44,7 +44,7 @@ App Mechanic uses only the Python standard library (`0` third-party Python packa
 
 App Mechanic is officially code-signed with a Developer ID by **Lieder Digital, LLC** and **Notarized by Apple**.
 
-1. Download the latest `AppMechanic-v0.6.5-Signed.zip` from the [GitHub Releases](https://github.com/liederdigital/app-mechanic/releases/latest) page (or [appmechanic.dev](https://appmechanic.dev)).
+1. Download the latest `AppMechanic-v0.6.6-Signed.zip` from the [GitHub Releases](https://github.com/liederdigital/app-mechanic/releases/latest) page (or [appmechanic.dev](https://appmechanic.dev)).
 2. Double-click to extract the `.zip`.
 3. Drag `App Mechanic.app` into your `/Applications` folder and double-click to launch!
 
