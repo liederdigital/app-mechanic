@@ -1,7 +1,7 @@
 # App Mechanic — Project Architecture & Engineering Notes
 
 ## Overview
-App Mechanic (`v0.6.6`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` (including 1-level app subfolders) and developer CLI toolchains, cross-references installed versions against Homebrew Casks, the Mac App Store (`mas`), Moth Software's Kaju feed, Homebrew Formulae, NPM, PyPI (`uv` / `pipx`), and 30+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
+App Mechanic (`v0.6.7`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` (including 1-level app subfolders and Apple Silicon iOS/iPadOS Wrapper bundles) and developer CLI toolchains, cross-references installed versions against Homebrew Casks (including `.pkg` and `installer` suites), the Mac App Store (`mas`), Sparkle (`SUFeedURL`) feeds, `electron-updater` (`app-update.yml`) feeds, Moth Software's Kaju feed, MediaHuman feeds, Homebrew Formulae (plus legacy macOS `/bin/bash`), NPM, PyPI (`uv` / `pipx`), and 30+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
 
 ## Repositories & Live Endpoints
 - **Core App Repository:** [`github.com/liederdigital/app-mechanic`](https://github.com/liederdigital/app-mechanic)

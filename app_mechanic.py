@@ -81,7 +81,7 @@ is_scanning = False
 scan_lock = threading.Lock()
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.6"
+APP_VERSION = "0.6.7"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -208,7 +208,12 @@ def parse_version(v):
     s = v.strip()
     m = re.search(r'^\d+(\.\d+)+', s)
     if m:
-        return [int(p) for p in m.group(0).split('.')]
+        nums = [int(p) for p in m.group(0).split('.')]
+        rest = s[m.end():]
+        pre = re.search(r'^-(?:alpha|beta|rc|pre)[._-]?(\d+)', rest, re.IGNORECASE)
+        if pre:
+            nums.append(int(pre.group(1)))
+        return nums
     # Support single-integer or prefixed build versions like "Build 4215", "4215", or "v0.21.2"
     m2 = re.search(r'^(?:build\s+|v)?(\d+(?:\.\d+)*)\b', s, re.IGNORECASE)
     if m2:
@@ -960,6 +965,10 @@ def get_brew_formulae():
             for f in info_data.get("formulae", []):
                 installed_info[f["name"]] = f
                 
+        # Always surface Homebrew `bash` if installed (even if installed as a dependency rather than a top-level leaf)
+        if "bash" in installed_info:
+            leaves.add("bash")
+                
         outdated_info = {}
         if outdated_res.returncode == 0:
             outdated_data = json.loads(outdated_res.stdout)
@@ -993,6 +1002,69 @@ def get_brew_formulae():
     except Exception as e:
         print(f"Warning: Failed checking Homebrew Formulae: {e}")
     return tools
+
+def fetch_brew_formula_latest(formula_name):
+    """Fetch the latest stable version of a Homebrew formula from formulae.brew.sh."""
+    url = f"https://formulae.brew.sh/api/formula/{formula_name}.json"
+    req = urllib.request.Request(url, headers={"User-Agent": "AppMechanic-macOS"})
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("versions", {}).get("stable")
+    except Exception:
+        return None
+
+def check_macos_bash(existing_cli_names):
+    """Detect if the Mac only has Apple's legacy /bin/bash (3.2.x from 2007) without Homebrew bash installed."""
+    if "bash" in existing_cli_names:
+        return []
+    print("Checking macOS Bash version...")
+    try:
+        # Check if a modern Homebrew bash binary already exists on disk even if `brew leaves` didn't return it
+        for brew_bash in ("/opt/homebrew/bin/bash", "/usr/local/bin/bash"):
+            if os.path.exists(brew_bash) and os.access(brew_bash, os.X_OK):
+                res = subprocess.run([brew_bash, "--version"], capture_output=True, text=True, timeout=5)
+                m = re.search(r"version\s+(\d+\.\d+(?:\.\d+)?)", res.stdout)
+                if m:
+                    inst_ver = m.group(1)
+                    latest_ver = fetch_brew_formula_latest("bash") or inst_ver
+                    status = "outdated" if parse_version(latest_ver) > parse_version(inst_ver) else "up_to_date"
+                    return [{
+                        "name": "bash",
+                        "installed": inst_ver,
+                        "latest": latest_ver,
+                        "status": status,
+                        "source": "Homebrew Formula",
+                        "install_method": "Homebrew CLI",
+                        "homepage": "https://www.gnu.org/software/bash/",
+                        "type": "cli"
+                    }]
+
+        # Otherwise inspect Apple's system /bin/bash (typically 3.2.57 from 2007 due to GPLv3 freeze)
+        if os.path.exists("/bin/bash"):
+            res = subprocess.run(["/bin/bash", "--version"], capture_output=True, text=True, timeout=5)
+            m = re.search(r"version\s+(\d+\.\d+(?:\.\d+)?)", res.stdout)
+            installed_ver = m.group(1) if m else "3.2.57"
+            major_ver = int(installed_ver.split(".")[0]) if installed_ver and installed_ver[0].isdigit() else 3
+            if major_ver < 4:
+                latest_ver = fetch_brew_formula_latest("bash") or "5.3"
+                return [{
+                    "name": "bash",
+                    "installed": f"{installed_ver} (macOS)",
+                    "latest": latest_ver,
+                    "status": "outdated",
+                    "source": "macOS Legacy /bin/bash → Homebrew Formula",
+                    "install_method": "Homebrew CLI",
+                    "update_cmd": "brew install bash",
+                    "homepage": "https://www.gnu.org/software/bash/",
+                    "type": "cli"
+                }]
+    except Exception as e:
+        print(f"Warning: Failed checking macOS bash: {e}")
+    return []
 
 def check_app_mechanic_github_update(installed_ver):
     """Fetch the latest App Mechanic release version from GitHub Releases."""
@@ -1040,6 +1112,73 @@ def check_mothsoftware_kaju_update(installed_ver):
     except Exception:
         pass
     return installed_ver
+
+def check_sparkle_appcast_update(feed_url, installed_ver):
+    """Check a Sparkle Appcast XML feed (SUFeedURL) and return the highest stable version string."""
+    if not feed_url or not feed_url.startswith("http"):
+        return installed_ver
+    req = urllib.request.Request(feed_url, headers={"User-Agent": "AppMechanic-macOS/1.0"})
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+            xml = resp.read().decode("utf-8", "ignore")
+        shorts = re.findall(r'sparkle:shortVersionString[=>"\s]+([0-9]+\.[0-9]+(?:\.[0-9]+)*)', xml)
+        candidates = [s for s in shorts if parse_version(s)]
+        if not candidates:
+            vers = re.findall(r'sparkle:version[=>"\s]+([0-9]+\.[0-9]+(?:\.[0-9]+)*)', xml)
+            candidates = [v for v in vers if parse_version(v)]
+        if candidates:
+            best = max(candidates, key=parse_version)
+            if parse_version(best) >= parse_version(installed_ver):
+                return best
+    except Exception:
+        pass
+    return installed_ver
+
+def check_electron_updater_feed(bundle_path, installed_ver):
+    """Check Contents/Resources/app-update.yml (electron-updater generic/github feeds) when present."""
+    yml_path = os.path.join(bundle_path, "Contents", "Resources", "app-update.yml")
+    if not os.path.exists(yml_path):
+        return None
+    try:
+        with open(yml_path, "r", encoding="utf-8", errors="ignore") as f:
+            yml_text = f.read()
+        provider_m = re.search(r'^\s*provider:\s*([^\s#]+)', yml_text, re.M)
+        provider = provider_m.group(1).strip(" '\"") if provider_m else ""
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        if provider == "generic":
+            url_m = re.search(r'^\s*url:\s*([^\s#]+)', yml_text, re.M)
+            base_url = url_m.group(1).strip(" '\"") if url_m else ""
+            if base_url.startswith("http"):
+                manifest_url = base_url.rstrip("/") + "/latest-mac.yml"
+                req = urllib.request.Request(manifest_url, headers={"User-Agent": "AppMechanic-macOS/1.0"})
+                with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                    manifest = resp.read().decode("utf-8", "ignore")
+                ver_m = re.search(r'^version:\s*([^\s#]+)', manifest, re.M)
+                if ver_m:
+                    late_v = ver_m.group(1).strip(" '\"")
+                    return (late_v, "electron-updater Feed", base_url)
+        elif provider == "github":
+            owner_m = re.search(r'^\s*owner:\s*([^\s#]+)', yml_text, re.M)
+            repo_m = re.search(r'^\s*repo:\s*([^\s#]+)', yml_text, re.M)
+            owner = owner_m.group(1).strip(" '\"") if owner_m else ""
+            repo = repo_m.group(1).strip(" '\"") if repo_m else ""
+            if owner and repo:
+                gh_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+                req = urllib.request.Request(gh_url, headers={"User-Agent": "AppMechanic-macOS/1.0"})
+                with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                    data = json.loads(resp.read().decode("utf-8", "ignore"))
+                tag = str(data.get("tag_name") or "").lstrip("v")
+                if tag and parse_version(tag):
+                    return (tag, f"GitHub Releases ({owner}/{repo})", f"https://github.com/{owner}/{repo}")
+                return (installed_ver, f"GitHub Releases ({owner}/{repo})", f"https://github.com/{owner}/{repo}")
+    except Exception:
+        pass
+    return None
 
 # Registry of rebranded macOS applications so legacy and renamed `.app` bundles cross-match casks
 # and display the rebrand clearly in the dashboard.
@@ -1128,10 +1267,26 @@ def _run_scan_impl():
             
     app_to_latest = {}
     cask_by_token = {}
+    bundle_id_to_cask = {}
+    name_to_cask = {}
     
     def is_unstable_cask(t):
         unstable_keywords = ['beta', 'nightly', 'dev', 'alpha', 'pre', 'rc', 'edge', 'insiders', 'canary', 'ptb']
         return any(kw in t.lower() for kw in unstable_keywords)
+
+    def _register_app_key(app_key, token, version, homepage, overwrite_exact=True):
+        app_key = app_key.lower()
+        name_without_app = app_key.replace('.app', '')
+        slug_name = name_without_app.replace(' ', '-')
+        is_exact = token.lower() in (name_without_app, slug_name)
+        if app_key in app_to_latest:
+            existing_token, _, _ = app_to_latest[app_key]
+            if overwrite_exact and is_exact:
+                app_to_latest[app_key] = (token, version, homepage)
+            elif is_unstable_cask(existing_token) and not is_unstable_cask(token):
+                app_to_latest[app_key] = (token, version, homepage)
+        else:
+            app_to_latest[app_key] = (token, version, homepage)
 
     for cask in casks:
         token = cask.get("token", "")
@@ -1140,27 +1295,79 @@ def _run_scan_impl():
         if token:
             cask_by_token[token.lower()] = (token, version, homepage)
         artifacts = cask.get("artifacts", [])
+        has_app_artifact = False
         for art in artifacts:
-            if isinstance(art, dict) and "app" in art:
+            if not isinstance(art, dict):
+                continue
+            if "app" in art:
+                has_app_artifact = True
                 app_list = art["app"]
                 if isinstance(app_list, str):
                     app_list = [app_list]
-                    
                 if isinstance(app_list, list):
                     for a in app_list:
                         if isinstance(a, str):
-                            app_key = a.lower()
-                            if app_key in app_to_latest:
-                                existing_token, _, _ = app_to_latest[app_key]
-                                name_without_app = app_key.replace('.app', '')
-                                # Prioritize exact token match over partial match
-                                if token.lower() == name_without_app:
-                                    app_to_latest[app_key] = (token, version, homepage)
-                                # Prioritize stable over unstable
-                                elif is_unstable_cask(existing_token) and not is_unstable_cask(token):
-                                    app_to_latest[app_key] = (token, version, homepage)
-                            else:
-                                app_to_latest[app_key] = (token, version, homepage)
+                            _register_app_key(os.path.basename(a), token, version, homepage, overwrite_exact=True)
+                        elif isinstance(a, dict) and isinstance(a.get("target"), str):
+                            # e.g. grammarly-desktop: ["Grammarly Installer.app", {"target": "Grammarly Desktop.app"}]
+                            _register_app_key(os.path.basename(a["target"]), token, version, homepage, overwrite_exact=True)
+        # For .pkg and installer casks that do not declare an `app` artifact, index their display names,
+        # `/Applications/*.app` uninstall delete paths, and quit/signal CFBundleIdentifiers.
+        if not has_app_artifact:
+            for cname in cask.get("name", []) or []:
+                if isinstance(cname, str) and cname.strip():
+                    ckey = cname.strip().lower()
+                    if ckey not in name_to_cask or (is_unstable_cask(name_to_cask[ckey][0]) and not is_unstable_cask(token)):
+                        name_to_cask[ckey] = (token, version, homepage)
+            for art in artifacts:
+                if not isinstance(art, dict):
+                    continue
+                if "uninstall" in art and isinstance(art["uninstall"], list):
+                    for uitem in art["uninstall"]:
+                        if not isinstance(uitem, dict):
+                            continue
+                        # Extract /Applications/*.app paths from pkg/installer uninstall delete rules (e.g. zoom.us.app, lghub.app, logioptionsplus.app)
+                        del_paths = uitem.get("delete", [])
+                        if isinstance(del_paths, str):
+                            del_paths = [del_paths]
+                        if isinstance(del_paths, list):
+                            for dp in del_paths:
+                                if isinstance(dp, str) and dp.startswith("/Applications/") and dp.lower().endswith(".app"):
+                                    _register_app_key(os.path.basename(dp), token, version, homepage, overwrite_exact=True)
+                        # Extract CFBundleIdentifiers from quit / signal rules (e.g. cloudflare-warp, tailscale-app, adobe-acrobat-pro, google-drive)
+                        quit_ids = uitem.get("quit", [])
+                        if isinstance(quit_ids, str):
+                            quit_ids = [quit_ids]
+                        if isinstance(quit_ids, list):
+                            for qid in quit_ids:
+                                if isinstance(qid, str) and "." in qid:
+                                    qkey = qid.lower()
+                                    if qkey not in bundle_id_to_cask or (is_unstable_cask(bundle_id_to_cask[qkey][0]) and not is_unstable_cask(token)):
+                                        bundle_id_to_cask[qkey] = (token, version, homepage)
+                        sig_spec = uitem.get("signal", [])
+                        if isinstance(sig_spec, list):
+                            for s_entry in sig_spec:
+                                if isinstance(s_entry, str) and "." in s_entry:
+                                    skey = s_entry.lower()
+                                    if skey not in bundle_id_to_cask or (is_unstable_cask(bundle_id_to_cask[skey][0]) and not is_unstable_cask(token)):
+                                        bundle_id_to_cask[skey] = (token, version, homepage)
+                                elif isinstance(s_entry, list) and len(s_entry) >= 2 and isinstance(s_entry[1], str) and "." in s_entry[1]:
+                                    skey = s_entry[1].lower()
+                                    if skey not in bundle_id_to_cask or (is_unstable_cask(bundle_id_to_cask[skey][0]) and not is_unstable_cask(token)):
+                                        bundle_id_to_cask[skey] = (token, version, homepage)
+
+    # Explicit bundle-ID mappings for pkg-installed apps where another cask's uninstall stanza quits their helper
+    # or where the bundle name uses different spacing than the cask
+    for explicit_bid, explicit_tok in (
+        ("com.displaylink.displaylinkuseragent", "displaylink"),
+        ("com.logitech.logitune", "logitune"),
+        ("de.appsolute.mamp", "mamp"),
+        ("de.appsolute.mamppro", "mamp"),
+        ("com.google.googleearthpro", "google-earth-pro"),
+        ("org.pqrs.karabiner-elements.settings", "karabiner-elements"),
+    ):
+        if explicit_tok in cask_by_token:
+            bundle_id_to_cask[explicit_bid] = cask_by_token[explicit_tok]
 
     def resolve_cask_info(app_filename, b_id=""):
         key = app_filename.lower()
@@ -1175,7 +1382,24 @@ def _run_scan_impl():
                 if tok_name in cask_by_token:
                     tok, ver, hp = cask_by_token[tok_name]
                     return (tok, ver, rmeta.get("rebrand_url") or hp)
-        return app_to_latest.get(key)
+        clean_name = key[:-4] if key.endswith(".app") else key
+        slug_name = clean_name.replace(" ", "-")
+        if key in app_to_latest:
+            matched = app_to_latest[key]
+            # If app_to_latest matched a multi-app suite cask (e.g. microsoft-office) via uninstall delete paths,
+            # prefer the dedicated individual cask when one exists (e.g. microsoft-word, microsoft-excel, onedrive).
+            if matched[0].lower() not in (clean_name, slug_name) and clean_name in name_to_cask:
+                cand = name_to_cask[clean_name]
+                if cand[0].lower() in (clean_name, slug_name):
+                    return cand
+            return matched
+        if b_id and b_id.lower() in bundle_id_to_cask:
+            return bundle_id_to_cask[b_id.lower()]
+        if clean_name in name_to_cask:
+            return name_to_cask[clean_name]
+        if clean_name.replace("-", " ") in name_to_cask:
+            return name_to_cask[clean_name.replace("-", " ")]
+        return None
 
     report_data = []
     
@@ -1207,16 +1431,24 @@ def _run_scan_impl():
     for item, bundle_path in app_bundles:
         name_clean = item[:-4]
         plist_path = os.path.join(bundle_path, "Contents", "Info.plist")
+        wrapper_plist_path = os.path.join(bundle_path, "WrappedBundle", "Info.plist")
+        wrapper_itunes_path = os.path.join(bundle_path, "Wrapper", "iTunesMetadata.plist")
         installed_ver = "Unknown"
+        short_ver = ""
+        bundle_ver = ""
         bundle_id = ""
+        sparkle_feed_url = ""
+        wrapper_mas_id = None
         
-        if os.path.exists(plist_path):
+        target_plist_path = plist_path if os.path.exists(plist_path) else (wrapper_plist_path if os.path.exists(wrapper_plist_path) else "")
+        if target_plist_path:
             try:
-                with open(plist_path, 'rb') as f:
+                with open(target_plist_path, 'rb') as f:
                     plist = plistlib.load(f)
                     bundle_id = str(plist.get("CFBundleIdentifier") or "")
                     short_ver = str(plist.get("CFBundleShortVersionString") or "")
                     bundle_ver = str(plist.get("CFBundleVersion") or "")
+                    sparkle_feed_url = str(plist.get("SUFeedURL") or "")
                     installed_ver = short_ver or bundle_ver or "Unknown"
                     if not parse_version(installed_ver) and parse_version(bundle_ver):
                         installed_ver = bundle_ver
@@ -1231,16 +1463,28 @@ def _run_scan_impl():
             except Exception:
                 pass
 
+        if os.path.exists(wrapper_itunes_path):
+            try:
+                with open(wrapper_itunes_path, 'rb') as f:
+                    itunes_pl = plistlib.load(f)
+                    if itunes_pl.get("itemId"):
+                        wrapper_mas_id = str(itunes_pl.get("itemId"))
+                    if installed_ver == "Unknown" and itunes_pl.get("bundleShortVersionString"):
+                        installed_ver = str(itunes_pl.get("bundleShortVersionString"))
+            except Exception:
+                pass
+
         rebrand_key = item.lower() if item.lower() in APP_REBRAND_MAP else BUNDLE_ID_REBRAND_MAP.get(bundle_id, "")
         rebrand_meta = APP_REBRAND_MAP.get(rebrand_key) if rebrand_key else None
         display_name = rebrand_meta["display_name"] if rebrand_meta else name_clean
         rebrand_tokens = set(rebrand_meta.get("tokens", [])) if rebrand_meta else set()
 
         mas_receipt_path = os.path.join(bundle_path, "Contents", "_MASReceipt")
+        wrapper_mas_receipt = os.path.join(bundle_path, "WrappedBundle", "_MASReceipt")
         cask_info_check = resolve_cask_info(item, bundle_id)
         token_check = cask_info_check[0] if cask_info_check else None
 
-        if os.path.exists(mas_receipt_path):
+        if os.path.exists(mas_receipt_path) or os.path.exists(wrapper_mas_receipt) or wrapper_mas_id is not None:
             install_method = "Mac App Store"
         elif (token_check and token_check in installed_casks) or (name_clean.lower() in installed_casks) or bool(rebrand_tokens & installed_casks):
             install_method = "Homebrew"
@@ -1269,12 +1513,12 @@ def _run_scan_impl():
             })
             continue
 
-        # Mac App Store apps (verified via Contents/_MASReceipt) are updated strictly through the
-        # Mac App Store (`mas outdated`), not Homebrew Cask — comparing MAS bundles against Cask
+        # Mac App Store apps (verified via Contents/_MASReceipt or iOS Wrapper/iTunesMetadata.plist) are updated strictly
+        # through the Mac App Store (`mas outdated`), not Homebrew Cask — comparing MAS bundles against Cask
         # produces false alarms when direct-download Cask builds roll out ahead of App Store review
         # (e.g. WhatsApp MAS 26.43.75 vs Homebrew Cask 26.44.12).
         if install_method == "Mac App Store":
-            mas_app_id = mas_installed.get(name_clean.lower())
+            mas_app_id = mas_installed.get(name_clean.lower()) or wrapper_mas_id
             mas_homepage = f"macappstore://apps.apple.com/app/id{mas_app_id}" if mas_app_id else "macappstore://showUpdatesPage"
             report_data.append({
                 "name": display_name,
@@ -1331,6 +1575,9 @@ def _run_scan_impl():
         if cask_info:
             token, latest_raw, homepage = cask_info
             latest_ver = latest_raw.split(',')[0].split('-')[0]
+            source_label = f"Homebrew Cask ({token})"
+            if rebrand_meta:
+                source_label = f"Homebrew Cask ({token} · Rebranded)"
             
             if latest_ver == "latest":
                 report_data.append({
@@ -1346,9 +1593,40 @@ def _run_scan_impl():
                     "type": "gui"
                 })
                 continue
-                
+
+            # Upgrade installed_ver to CFBundleVersion when CFBundleVersion records the full dotted build string
+            # that matches Homebrew Cask's format (e.g. Zoom 7.2.5.90525, Microsoft Office 16.114.26110224,
+            # Google Drive 133.0.2, Google Earth Pro 7.3.7.1327, 4K Video Downloader+ 26.3.5).
+            p_bver = parse_version(bundle_ver)
+            p_inst_initial = parse_version(installed_ver)
+            p_late_initial = parse_version(latest_ver)
+            if p_bver and p_inst_initial and p_late_initial:
+                if bundle_id == "us.zoom.xos" or (
+                    bundle_id.startswith("com.microsoft.") and len(p_bver) == len(p_late_initial) and p_bver[:2] == p_inst_initial[:2]
+                ) or (
+                    len(p_bver) > len(p_inst_initial) and len(p_bver) == len(p_late_initial) and p_bver[:len(p_inst_initial)] == p_inst_initial
+                ):
+                    installed_ver = bundle_ver
+
+            # Brave Browser (`com.brave.Browser`) prepends the Chromium major version onto CFBundleShortVersionString
+            # (e.g. 156.1.98.63 for Brave 1.98.63, while Homebrew Cask reports 1.98.63.0).
+            if bundle_id == "com.brave.Browser":
+                p_brave = parse_version(installed_ver)
+                if len(p_brave) == 4 and p_brave[0] > 100 and p_late_initial and p_brave[1] == p_late_initial[0]:
+                    installed_ver = ".".join(str(x) for x in p_brave[1:])
+
             p_inst = parse_version(installed_ver)
             p_late = parse_version(latest_ver)
+
+            # If a Homebrew Cask points to an older/legacy release line than the installed app (e.g. Loom 2.0.20 vs
+            # legacy cask 0.383.1, or Domzilla Caffeine 1.6.4 vs 2010 Lighthead cask 1.1.4) and the app bundle defines
+            # an active Sparkle SUFeedURL, check the app's own Sparkle feed instead!
+            if p_inst and p_late and p_late < p_inst and sparkle_feed_url:
+                sparkle_latest = check_sparkle_appcast_update(sparkle_feed_url, installed_ver)
+                if parse_version(sparkle_latest) >= p_inst:
+                    latest_ver = sparkle_latest
+                    p_late = parse_version(latest_ver)
+                    source_label = "Sparkle Appcast Feed"
             
             if p_inst and p_late:
                 orig_inst_len = len(p_inst)
@@ -1379,6 +1657,13 @@ def _run_scan_impl():
                     # and does not auto-upgrade across major year-version jumps unless manually installed.
                     elif name_clean.lower() == 'xmind' and p_inst[0] < p_late[0]:
                         status = "up_to_date"
+                    # ChatGPT (`com.openai.codex`): OpenAI's in-app updater queries a cohort-gated endpoint
+                    # (`updates.oaistatic.com/codex/app/appcast?installation_id=...&plan_type=...`) while Homebrew Cask
+                    # scrapes static `persistent.oaistatic.com/codex-app-prod/appcast.xml`. When both share the same
+                    # `YY.MMDD` release date (`26.1029.61003` vs `26.1029.70936`), treat the release as up to date.
+                    elif (name_clean.lower() == 'chatgpt' or bundle_id == 'com.openai.codex') and len(p_inst) >= 2 and len(p_late) >= 2 and p_inst[:2] == p_late[:2]:
+                        latest_ver = installed_ver
+                        status = "up_to_date"
                     else:
                         status = "outdated"
                         if is_marked_false_alarm(display_name, installed_ver) or is_marked_false_alarm(name_clean, installed_ver):
@@ -1389,10 +1674,6 @@ def _run_scan_impl():
                     status = "up_to_date"
             else:
                 status = "up_to_date"
-
-            source_label = f"Homebrew Cask ({token})"
-            if rebrand_meta:
-                source_label = f"Homebrew Cask ({token} · Rebranded)"
 
             report_data.append({
                 "name": display_name,
@@ -1461,15 +1742,67 @@ def _run_scan_impl():
                 "type": "gui"
             })
         else:
+            latest_ver = installed_ver
+            status = "up_to_date"
+            if bundle_id.startswith("com.adobe."):
+                source_label = "Managed via Adobe Creative Cloud Desktop"
+            elif (
+                bundle_id.startswith("com.apple.")
+                or bundle_id.startswith("com.google.drivefs.shortcuts")
+                or bundle_id in ("org.python.IDLE", "org.pqrs.Karabiner-EventViewer")
+            ):
+                source_label = "Managed by macOS / Parent App"
+            else:
+                source_label = "Self-Managed (Check in-app for updates)"
+            homepage = rebrand_meta["rebrand_url"] if rebrand_meta else ""
+
+            if sparkle_feed_url:
+                latest_ver = check_sparkle_appcast_update(sparkle_feed_url, installed_ver)
+                source_label = "Sparkle Appcast Feed"
+            elif bundle_id == "com.mediahuman.Video Converter" or name_clean.lower() == "mediahuman video converter":
+                try:
+                    ctx_mh = ssl.create_default_context()
+                    ctx_mh.check_hostname = False
+                    ctx_mh.verify_mode = ssl.CERT_NONE
+                    req_mh = urllib.request.Request("https://www.mediahuman.net/files/VideoConverter2.xml", headers={"User-Agent": "AppMechanic-macOS/1.0"})
+                    with urllib.request.urlopen(req_mh, timeout=5, context=ctx_mh) as resp_mh:
+                        xml_mh = resp_mh.read().decode("utf-8", "ignore")
+                    m_mh = re.search(r"<current>\s*([0-9]+(?:\.[0-9]+)+)\s*</current>", xml_mh)
+                    if m_mh:
+                        latest_ver = m_mh.group(1)
+                    source_label = "MediaHuman Feed"
+                    homepage = "https://www.mediahuman.com/video-converter/"
+                except Exception:
+                    pass
+            else:
+                eu_info = check_electron_updater_feed(bundle_path, installed_ver)
+                if eu_info:
+                    latest_ver, source_label, eu_hp = eu_info
+                    if not homepage:
+                        homepage = eu_hp
+
+            p_inst = parse_version(installed_ver)
+            p_late = parse_version(latest_ver)
+            if p_inst and p_late:
+                max_len = max(len(p_inst), len(p_late))
+                p_inst_padded = p_inst + [0] * (max_len - len(p_inst))
+                p_late_padded = p_late + [0] * (max_len - len(p_late))
+                if p_late_padded > p_inst_padded:
+                    status = "outdated"
+                    if is_marked_false_alarm(display_name, installed_ver) or is_marked_false_alarm(name_clean, installed_ver):
+                        status = "false_alarm"
+                    elif ignored_releases.get(display_name) == latest_ver or ignored_releases.get(name_clean) == latest_ver:
+                        status = "ignored"
+
             report_data.append({
                 "name": display_name,
                 "launch_name": name_clean,
                 "installed": installed_ver,
-                "latest": installed_ver,
-                "status": "up_to_date",
-                "source": "Native / OS",
+                "latest": latest_ver,
+                "status": status,
+                "source": source_label,
                 "install_method": install_method,
-                "homepage": rebrand_meta["rebrand_url"] if rebrand_meta else "",
+                "homepage": homepage,
                 "mas_id": mas_installed.get(name_clean.lower()),
                 "type": "gui"
             })
@@ -1490,11 +1823,15 @@ def _run_scan_impl():
             if t["name"] not in ai_covered:
                 cli_items.extend([t])
         cli_items.extend(get_brew_formulae())
+        existing_cli_names = {item["name"] for item in cli_items}
+        cli_items.extend(check_macos_bash(existing_cli_names))
         for item in cli_items:
             if item["status"] == "outdated":
                 if is_marked_false_alarm(item["name"], item["installed"]):
                     item["status"] = "false_alarm"
-                elif ignored_releases.get(item["name"]) == item["latest"]:
+                elif ignored_releases.get(item["name"]) == item["latest"] or (
+                    item["name"] == "bash" and "(macOS)" in item.get("installed", "") and item["name"] in ignored_releases
+                ):
                     item["status"] = "ignored"
         report_data.extend(cli_items)
 
@@ -3233,7 +3570,7 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
                 elif install_method == "uv":
                     cmd = f"uv tool upgrade {app_name}"
                 elif install_method == "Homebrew CLI":
-                    cmd = f"brew upgrade {app_name}"
+                    cmd = custom_cmd if custom_cmd else f"brew upgrade {app_name}"
                 elif install_method == "AI CLI" and custom_cmd:
                     cmd = custom_cmd
                 

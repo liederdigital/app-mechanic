@@ -157,6 +157,26 @@ When an app reports a mismatch that is not a bug in App Mechanic’s parser, but
 
 ---
 
+### 8. ChatGPT (`chatgpt` / `com.openai.codex`) — Intra-Day Sub-Build Cohort Drift ([Issue #2](https://github.com/liederdigital/app-mechanic/issues/2))
+* **Report Date:** 2026-11-05
+* **App / Tool:** `ChatGPT` (`/Applications/ChatGPT.app`, `com.openai.codex`)
+* **Installed Version:** `26.1029.61003` (`CFBundleVersion = "24614"`)
+* **Reported Latest:** `26.1029.70936`
+* **Catalog Source:** Homebrew Cask (`chatgpt`)
+* **Install Method:** Manual / OS
+* **Classification:** Cohort-Gated Dynamic Appcast vs. Static Cask `appcast.xml` on Same `YY.MMDD` Release Train
+
+#### Upstream Context & Root Cause
+* Inside `/Applications/ChatGPT.app/Contents/Resources/app.asar`, `ChatGPT.app` (`com.openai.codex`) resolves its in-app update checks against a dynamic, cohort-gated backend endpoint:
+  `https://updates.oaistatic.com/codex/app/appcast?installation_id=<id>&arch=arm64&app_version=26.1029.61003&beta=false&os-version=<ver>&plan_type=<plan>`
+* Meanwhile, Homebrew Cask (`chatgpt`) scrapes the static feed `https://persistent.oaistatic.com/codex-app-prod/appcast.xml` (`ChatGPT-darwin-arm64-26.1029.70936.zip`).
+* Both `26.1029.61003` and `26.1029.70936` belong to the same **`26.1029` (`YY.MMDD`, October 29, 2026)** release train; only the third segment (the intra-day sub-build identifier `61003` vs. `70936`) differs. OpenAI's dynamic appcast reports `26.1029.61003` as up to date rather than forcing every `installation_id` / `plan_type` cohort onto same-day sub-builds.
+
+#### App Mechanic Handling
+* Updated `_run_scan_impl()` in `app_mechanic.py` so that for `ChatGPT` (`com.openai.codex`), when the installed version and the Homebrew Cask version share the same `YY.MMDD` release date (`p_inst[:2] == p_late[:2]`, e.g., `26.1029.*`), the app is treated as `up_to_date` (`latest_ver = installed_ver`), while still flagging genuine multi-day release updates (such as `26.1027.*` -> `26.1029.*`).
+
+---
+
 ## Report Entry Template
 
 For new reports received via GitHub Issues or Email:
