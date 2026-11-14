@@ -81,7 +81,7 @@ is_scanning = False
 scan_lock = threading.Lock()
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.7"
+APP_VERSION = "0.6.8"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -1137,6 +1137,34 @@ def check_sparkle_appcast_update(feed_url, installed_ver):
         pass
     return installed_ver
 
+def check_4kdownload_appcast_update(feed_url):
+    """Return the latest macOS version from a 4K Download multi-OS appcast XML feed, or None on failure."""
+    if not feed_url or not feed_url.startswith("http"):
+        return None
+    req = urllib.request.Request(feed_url, headers={"User-Agent": "AppMechanic-macOS/1.0"})
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+            xml = resp.read().decode("utf-8", "ignore")
+        candidates = []
+        for item in re.findall(r'<item>(.*?)</item>', xml, re.DOTALL):
+            if "mac-armv8" not in item and "mac-64" not in item:
+                continue
+            title_m = re.search(r'<title>\s*Version\s+([0-9]+\.[0-9]+(?:\.[0-9]+)*)\s*</title>', item, re.IGNORECASE)
+            if title_m and parse_version(title_m.group(1)):
+                candidates.append(title_m.group(1))
+                continue
+            ver_m = re.search(r'<sparkle:version>\s*([0-9]+\.[0-9]+\.[0-9]+)(?:\.[0-9]+)?\s*</sparkle:version>', item)
+            if ver_m and parse_version(ver_m.group(1)):
+                candidates.append(ver_m.group(1))
+        if candidates:
+            return max(candidates, key=parse_version)
+    except Exception:
+        pass
+    return None
+
 def check_electron_updater_feed(bundle_path, installed_ver):
     """Check Contents/Resources/app-update.yml (electron-updater generic/github feeds) when present."""
     yml_path = os.path.join(bundle_path, "Contents", "Resources", "app-update.yml")
@@ -1220,6 +1248,26 @@ def resolve_jetbrains_product_version(bundle_path, short_ver):
     except Exception:
         pass
     return short_ver
+
+def resolve_obsidian_asar_version(short_ver):
+    """Resolve the active self-updated obsidian-*.asar version when Obsidian's outer Electron Info.plist lags behind."""
+    obs_dir = os.path.expanduser("~/Library/Application Support/obsidian")
+    if not os.path.isdir(obs_dir):
+        return short_ver
+    best_ver = short_ver
+    best_tuple = parse_version(short_ver)
+    try:
+        for asar_path in _glob.glob(os.path.join(obs_dir, "obsidian-*.asar")):
+            m = re.match(r'^obsidian-(\d+\.\d+(?:\.\d+)*)\.asar$', os.path.basename(asar_path))
+            if m:
+                cand = m.group(1)
+                cand_tuple = parse_version(cand)
+                if cand_tuple and (not best_tuple or cand_tuple > best_tuple):
+                    best_tuple = cand_tuple
+                    best_ver = cand
+    except Exception:
+        pass
+    return best_ver
 
 def run_scan():
     global cached_scan_data, last_scan_time, is_scanning
@@ -1453,6 +1501,8 @@ def _run_scan_impl():
                     if not parse_version(installed_ver) and parse_version(bundle_ver):
                         installed_ver = bundle_ver
                     installed_ver = resolve_jetbrains_product_version(bundle_path, installed_ver)
+                    if bundle_id == "md.obsidian":
+                        installed_ver = resolve_obsidian_asar_version(installed_ver)
                     if installed_ver in ("0.0.0", "0.0.1", "Unknown") and bundle_id == "com.nousresearch.hermes":
                         _, hermes_bin = find_cli_bin("hermes")
                         if hermes_bin:
@@ -1627,6 +1677,18 @@ def _run_scan_impl():
                     latest_ver = sparkle_latest
                     p_late = parse_version(latest_ver)
                     source_label = "Sparkle Appcast Feed"
+
+            # 4K Video Downloader+ (`com.openmedia.4kvideodownloaderplus`): OpenMedia may publish a newer
+            # website DMG (tracked by Homebrew Cask, e.g. 26.4.0) before updating the app's own appcast
+            # feed (`dl.4kdownload.com/app/appcast/videodownloaderplus.xml`). For manual installs updated
+            # in-app, use the official appcast feed so users are not alerted for unavailable updates.
+            if install_method != "Homebrew" and (bundle_id == "com.openmedia.4kvideodownloaderplus" or name_clean.lower() == "4k video downloader+"):
+                appcast_latest = check_4kdownload_appcast_update("https://dl.4kdownload.com/app/appcast/videodownloaderplus.xml")
+                p_appcast = parse_version(appcast_latest) if appcast_latest else []
+                if p_appcast:
+                    latest_ver = installed_ver if (p_inst and p_appcast < p_inst) else appcast_latest
+                    p_late = parse_version(latest_ver)
+                    source_label = "4K Download Appcast"
             
             if p_inst and p_late:
                 orig_inst_len = len(p_inst)
@@ -1662,6 +1724,12 @@ def _run_scan_impl():
                     # scrapes static `persistent.oaistatic.com/codex-app-prod/appcast.xml`. When both share the same
                     # `YY.MMDD` release date (`26.1029.61003` vs `26.1029.70936`), treat the release as up to date.
                     elif (name_clean.lower() == 'chatgpt' or bundle_id == 'com.openai.codex') and len(p_inst) >= 2 and len(p_late) >= 2 and p_inst[:2] == p_late[:2]:
+                        latest_ver = installed_ver
+                        status = "up_to_date"
+                    # Google Drive (`com.google.drivefs`): Homebrew Cask (`google-drive`) tracks Google's 5% staged
+                    # rollout DMG (`dl.google.com/drive-file-stream/5-percent/GoogleDrive.dmg`), while GoogleUpdater's
+                    # `Stable` cohort rolls out major/minor updates in phased rings (e.g. 133.0.2 vs 134.0.1).
+                    elif (name_clean.lower() == 'google drive' or bundle_id == 'com.google.drivefs') and (p_late[0] - p_inst[0]) <= 1:
                         latest_ver = installed_ver
                         status = "up_to_date"
                     else:

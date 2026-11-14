@@ -1,7 +1,7 @@
 # App Mechanic — Project Architecture & Engineering Notes
 
 ## Overview
-App Mechanic (`v0.6.7`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` (including 1-level app subfolders and Apple Silicon iOS/iPadOS Wrapper bundles) and developer CLI toolchains, cross-references installed versions against Homebrew Casks (including `.pkg` and `installer` suites), the Mac App Store (`mas`), Sparkle (`SUFeedURL`) feeds, `electron-updater` (`app-update.yml`) feeds, Moth Software's Kaju feed, MediaHuman feeds, Homebrew Formulae (plus legacy macOS `/bin/bash`), NPM, PyPI (`uv` / `pipx`), and 30+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
+App Mechanic (`v0.6.8`) is a zero-dependency macOS utility written in pure Python standard library. It scans `/Applications` (including 1-level app subfolders and Apple Silicon iOS/iPadOS Wrapper bundles) and developer CLI toolchains, cross-references installed versions against Homebrew Casks (including `.pkg` and `installer` suites), the Mac App Store (`mas`), Sparkle (`SUFeedURL`) feeds, `electron-updater` (`app-update.yml`) feeds, Moth Software's Kaju feed, MediaHuman feeds, 4K Download Appcast feeds, Homebrew Formulae (plus legacy macOS `/bin/bash`), NPM, PyPI (`uv` / `pipx`), and 30+ AI coding agent release channels, and serves a local glassmorphic dashboard on `http://127.0.0.1:8000`.
 
 ## Repositories & Live Endpoints
 - **Core App Repository:** [`github.com/liederdigital/app-mechanic`](https://github.com/liederdigital/app-mechanic)
@@ -16,7 +16,7 @@ App Mechanic (`v0.6.7`) is a zero-dependency macOS utility written in pure Pytho
    - Outdated MAS apps link directly to `macappstore://apps.apple.com/app/id<MAS_ID>` when clicked.
 2. **Homebrew Cask GUI Apps (`fetch_brew_casks()`):**
    - Fetches `https://formulae.brew.sh/api/cask.json`, maps `.app` bundle artifacts, prioritizes exact token matches and stable casks over unstable (`beta`, `nightly`, `dev`, `alpha`, `rc`, `canary`) variants, and compares `CFBundleShortVersionString` / `CFBundleVersion` using segment-padded integer tuples.
-   - Filters known silent background auto-updaters (`obsidian`, `discord`, `slack`, `notion`, `cursor`, `code`, `spotify`, `figma`, `whatsapp`, `opera`, `descript`, `chatgpt`, `claude`, `firefox`, etc.) to prevent false positives.
+   - Handles silent background auto-updaters (`obsidian` via active `obsidian-*.asar` payload inspection, `discord`, `slack`, `notion`, `cursor`, `code`, `spotify`, `figma`, `whatsapp`, `opera`, `descript`, `chatgpt`, `claude`, `firefox`, etc.), manual `4K Video Downloader+` installs via 4K Download's appcast feed, and `Google Drive` staged 1-major-version rollout drift to prevent false positives.
 3. **Pro-Only AI & Vibe-Coding CLI Scanner (`get_ai_cli_tools()`):**
    - Gated strictly behind `is_pro_unlocked()`.
    - Checks native self-updaters and upstream registries for `grok` (`grok update --check --json`), `muse` (`api.meta.ai/muse-code/channels/muse-stable`, updated synchronously via `MUSE_SYNC_UPDATE=1 muse --version`), `herdr` (`herdr.dev/latest.json`), `hermes` (`hermes --version`), `openclaw` (`openclaw-safe-update` / NPM), `agy`, `claude`, `codex` (`codex update`), `gemini`, `kimi`, `vibe`, `amp`, `opencode`, `qwen`, `cline`, `kilo`, `pi`, `copilot`, `aider`, `letta`, `openhands`, `goose`, `mercury` (`mercury upgrade`), and `basecamp` (`basecamp upgrade`).

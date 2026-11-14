@@ -177,6 +177,78 @@ When an app reports a mismatch that is not a bug in App Mechanic’s parser, but
 
 ---
 
+### 9. 4K Video Downloader+ (`4k-video-downloader+`) — Website DMG vs. Appcast Feed Lag ([Issue #4](https://github.com/liederdigital/app-mechanic/issues/4))
+* **Report Date:** 2026-11-14
+* **App / Tool:** `4K Video Downloader+` (`/Applications/4K Video Downloader+.app`, `com.openmedia.4kvideodownloaderplus`)
+* **Installed Version:** `26.3.5` (`CFBundleShortVersionString = "26.3"`, `CFBundleVersion = "26.3.5"`)
+* **Reported Latest:** `26.4.0`
+* **Catalog Source:** Homebrew Cask (`4k-video-downloader+`)
+* **Install Method:** Manual / OS
+* **Classification:** Direct DMG Release Ahead of In-App Appcast Feed
+
+#### Upstream Context & Root Cause
+* OpenMedia published `4kvideodownloaderplus_26.4.0_arm64.dmg` on `dl.4kdownload.com` (2026-11-11), which Homebrew Cask (`4k-video-downloader+`, `auto_updates: null`) immediately indexed as `26.4.0`.
+* However, the app's own built-in updater feed (`https://dl.4kdownload.com/app/appcast/videodownloaderplus.xml`) remained at **`26.3.5`** (`<sparkle:version>26.3.5.0396</sparkle:version>`, `pubDate` 2026-09-29), so checking for updates inside the app reports `26.3.5` as up to date.
+
+#### App Mechanic Handling
+* Added `check_4kdownload_appcast_update()` in `app_mechanic.py` and updated `_run_scan_impl()` so that for manual (`install_method != "Homebrew"`) installs of `4K Video Downloader+` (`com.openmedia.4kvideodownloaderplus`), App Mechanic queries `https://dl.4kdownload.com/app/appcast/videodownloaderplus.xml` (`source: "4K Download Appcast"`). Homebrew-managed installs continue to track Homebrew Cask (`26.4.0`).
+
+---
+
+### 10. Loom (`loom` / `com.loom.desktop.native`) — Silent Sparkle Auto-Update Timing ([Issue #5](https://github.com/liederdigital/app-mechanic/issues/5))
+* **Report Date:** 2026-11-14
+* **App / Tool:** `Loom` (`/Applications/Loom.app`, `com.loom.desktop.native`)
+* **Installed Version:** `2.0.47`
+* **Reported Latest:** `2.0.55`
+* **Catalog Source:** Sparkle Appcast Feed (`https://packages.loom.com/mac/stable.xml`)
+* **Install Method:** Manual / OS
+* **Classification:** Genuine Update + Silent Sparkle Background Swap Race
+
+#### Upstream Context & Root Cause
+* Because Homebrew Cask `loom` (`0.385.1`) trails Loom's rewritten native macOS client (`2.0.x`), App Mechanic correctly queries `Loom.app`'s `SUFeedURL` (`https://packages.loom.com/mac/stable.xml`), where `2.0.55` (`<sparkle:version>135</sparkle:version>`) had been published on 2026-11-11.
+* `Loom.app` configures `SUAutomaticallyUpdate = True`. When opened to check its version (`21:49:55Z` per `SULastCheckTime`), Sparkle silently downloaded and swapped `/Applications/Loom.app` on disk to `2.0.55` (`21:50:03Z`) without a visible update prompt before the running `2.0.47` UI or cached scan result refreshed.
+
+#### App Mechanic Handling
+* Working as designed; subsequent scans read `2.0.55` from `/Applications/Loom.app/Contents/Info.plist` and mark Loom as `up_to_date`.
+
+---
+
+### 11. Obsidian (`obsidian` / `md.obsidian`) — Split Electron Shell vs. Auto-Updated `.asar` Payload ([Issue #6](https://github.com/liederdigital/app-mechanic/issues/6))
+* **Report Date:** 2026-11-14
+* **App / Tool:** `Obsidian` (`/Applications/Obsidian.app`, `md.obsidian`)
+* **Installed Version:** `1.15.0` (Electron wrapper `Info.plist`) / `1.15.1` (`obsidian-1.15.1.asar`)
+* **Reported Latest:** `1.15.1`
+* **Catalog Source:** Homebrew Cask (`obsidian`)
+* **Install Method:** Manual / OS
+* **Classification:** Frozen Electron Installer `Info.plist` vs. Self-Updated App `.asar`
+
+#### Upstream Context & Root Cause
+* Obsidian distributes core app updates as signed `.asar.gz` payloads fetched from `desktop-releases.json` into `~/Library/Application Support/obsidian/obsidian-<version>.asar` (`obsidian-1.15.1.asar`), while leaving the outer `/Applications/Obsidian.app` Electron wrapper `Info.plist` at its original installer version (`1.15.0`).
+* Following `v0.6.4` (`dc50263`), `'obsidian'` was removed from `auto_updaters`, causing App Mechanic to compare the stale `1.15.0` wrapper `Info.plist` against Homebrew Cask `1.15.1`.
+
+#### App Mechanic Handling
+* Added `resolve_obsidian_asar_version()` in `app_mechanic.py` and wired it for `md.obsidian` so App Mechanic reads the highest `obsidian-*.asar` version in `~/Library/Application Support/obsidian/` whenever it exceeds `Info.plist`. This accurately displays `1.15.1` as `up_to_date` while still catching genuinely un-updated installs.
+
+---
+
+### 12. Google Drive (`google-drive` / `com.google.drivefs`) — 5% Staged Rollout DMG vs. GoogleUpdater Stable Cohort ([Issue #7](https://github.com/liederdigital/app-mechanic/issues/7))
+* **Report Date:** 2026-11-14
+* **App / Tool:** `Google Drive` (`/Applications/Google Drive.app`, `com.google.drivefs`)
+* **Installed Version:** `133.0.2`
+* **Reported Latest:** `134.0.1`
+* **Catalog Source:** Homebrew Cask (`google-drive`)
+* **Install Method:** Manual / OS
+* **Classification:** Upstream 5% Canary Rollout URL vs. GoogleUpdater `Stable` Cohort
+
+#### Upstream Context & Root Cause
+* Homebrew Cask `google-drive` (`auto_updates: true`) points directly to Google's 5% staged rollout URL (`https://dl.google.com/drive-file-stream/5-percent/GoogleDrive.dmg`, `134.0.1`), which differs from the general `GoogleDrive.dmg` download.
+* Meanwhile, `GoogleUpdater` manages `com.google.drivefs` silently on the `Stable` cohort (`133.0.2.0` in `/Library/Application Support/Google/GoogleUpdater/prefs.json`), rolling out updates in phased rings with no manual in-app update button.
+
+#### App Mechanic Handling
+* Updated `_run_scan_impl()` in `app_mechanic.py` so that for `Google Drive` (`com.google.drivefs`), staged 1-major-version rollout drift (`(p_late[0] - p_inst[0]) <= 1`) is treated as `up_to_date` (`latest_ver = installed_ver`), while still alerting if an install falls 2+ major versions behind.
+
+---
+
 ## Report Entry Template
 
 For new reports received via GitHub Issues or Email:
