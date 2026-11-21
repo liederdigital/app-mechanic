@@ -83,3 +83,5 @@ This software is provided under the **MIT License** by Lieder Digital, LLC.
 **WARNING:** This software comes with **ABSOLUTELY NO WARRANTIES WHATSOEVER**. While it definitely won't break your computer or delete your emails and passwords, Lieder Digital, LLC is not responsible if it accidentally leaves the back door open and your dog runs away from home. Use at your own risk! See the [LICENSE](LICENSE) file for more details.
 
 How this repository was made is recorded in [COLOPHON.md](COLOPHON.md).
+
+<a href="https://colophon.md/timeline?repo=liederdigital/app-mechanic"><picture><source media="(prefers-color-scheme: dark)" srcset="https://colophon.md/svg/liederdigital/app-mechanic?theme=dark"><source media="(prefers-color-scheme: light)" srcset="https://colophon.md/svg/liederdigital/app-mechanic"><img alt="Timeline of how App Mechanic was made" src="https://colophon.md/svg/liederdigital/app-mechanic"></picture></a>
