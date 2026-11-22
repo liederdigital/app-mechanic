@@ -11,7 +11,7 @@ elsewhere ([`LICENSE`](LICENSE)).
 | | |
 |---|---|
 | Project | App Mechanic (`liederdigital/app-mechanic`) |
-| Convention | [COLOPHON.md](https://colophon.md) v1.2.4 |
+| Convention | [COLOPHON.md](https://colophon.md) v1.3 |
 | Primary builder | Google Antigravity |
 | Surface | desktop app |
 | Model / mode | Gemini 4 Argon (High) and Gemini 4 Hydrogen (XHigh) (shown by the tool in session transcript `USER_SETTINGS_CHANGE`); earlier phases used Gemini 4 Argon (Low), Gemini (Low effort), Gemini 3.8 Flash (High), Gemini (Medium effort), and Gemini 3.1 Pro (High) (shown by the tool) |
@@ -19,7 +19,7 @@ elsewhere ([`LICENSE`](LICENSE)).
 | Review | Human, Ron Stauffer (cross-machine testing on macOS across MacBook Air, MacBook Pro, and iMac; screenshot and Terminal verification); also reviewed by Claude Code (`#1`) |
 | Directed by | Ron Stauffer |
 | Human owner | Ron Stauffer (Lieder Digital, LLC), product direction, multi-Mac testing, Apple Developer ID signing/notarization & Gumroad configuration, release approval |
-| Era | 2026-07-27 to 2026-11-21 (UTC; converted from America/Denver on 2026-11-21) |
+| Era | 2026-07-27 to 2026-11-22 (UTC; converted from America/Denver on 2026-11-21) |
 | Status | active (`v0.6.8`) |
 
 ## How the work was done
@@ -32,6 +32,7 @@ Dates are UTC, converted from America/Denver on 2026-11-21 (see Evidence limits)
 
 | Date | Builder | Role | Surface | Model / mode | Contribution | Evidence |
 |---|---|---|---|---|---|---|
+| 2026-11-22 | Code Monkey (Grok Bot) | built | Grok Bot desktop app, hosted agent | Unknown | Upgraded COLOPHON.md to [COLOPHON.md](https://colophon.md) v1.3 and replaced the older Colophon snippet in the existing AGENTS.md. Review of this change is pending Ron. Local session logs were not checked. | this pull request |
 | 2026-11-21 | Grok Bot | documented | Hosted agent running `git` and `gh` on the owner's MacBook Pro | Unknown | Upgraded this colophon to COLOPHON.md v1.2.4: `Convention` row, dates converted to UTC, live timeline; checked GitHub for unrecorded history (none found); confirmed `AGENTS.md` already has the current Colophon snippet | `git log -- COLOPHON.md` |
 | 2026-11-15 | Google Antigravity | built, deployed | desktop app | Gemini 4 Argon (High) (shown by the tool) | Rendered Retina `v0.6.8` MacBook Pro cover mockups, square Telemetry Tachometer thumbnails, and dashboard screenshots in [`screenshots, etc./gumroad-v0.6.8/`](screenshots,%20etc./gumroad-v0.6.8/), synced [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) and Gumroad product listing to `v0.6.8`, and merged forensic colophon review PR `#1` | `68117cc`, `#1`, [`screenshots, etc./gumroad-v0.6.8/`](screenshots,%20etc./gumroad-v0.6.8/), `v0.6.8` |
 | 2026-11-14 | Google Antigravity | built, deployed | desktop app | Gemini 4 Hydrogen (XHigh) (shown by the tool) | Release `v0.6.8`: reviewed and resolved false-alarm GitHub Issues `#3`–`#7` (added `resolve_obsidian_asar_version()` to read Obsidian's auto-updated `obsidian-*.asar` payload (`#6`), added `check_4kdownload_appcast_update()` for manual `4K Video Downloader+` installs against `videodownloaderplus.xml` (`#4`), handled `Google Drive` (`com.google.drivefs`) staged 1-major-version rollout drift (`#7`), verified Loom (`#5`) silent Sparkle background swap and `ChatGPT` duplicate (`#3`)), documented Entries `#9`–`#12` in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md), replaced the app icon with Telemetry Tachometer (`1A`) as a transparent Apple HIG squircle in [`AppMechanic.icns`](AppMechanic.icns) and [`icon.jpg`](icon.jpg), bumped version metadata to `0.6.8`, and packaged/notarized `AppMechanic-v0.6.8-Signed.zip` | `c3b2f1b` (`v0.6.8`), [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), [`build.sh`](build.sh), [`README.md`](README.md), [`NOTES.md`](NOTES.md), [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md), [`AppMechanic.icns`](AppMechanic.icns), [`icon.jpg`](icon.jpg), `#3`, `#4`, `#5`, `#6`, `#7` |
@@ -128,3 +129,5 @@ Earlier rows are kept as written (with tag and date pointers aligned above). The
   - The exact model version and reasoning setting for the earliest Google Antigravity session (`2026-07-28` to `2026-08-11`, commits `ae0ac28`..`a2f2a52`), which predates `USER_SETTINGS_CHANGE` model-selection records in Antigravity transcripts.
   - Whether an AI tool assisted with commit `ea79d2d` (`2026-07-27`, committed one day before the first local Antigravity transcript on this computer).
 - The commit that created or updated this file can be found with `git log -- COLOPHON.md`.
+
+This 2026-11-22 v1.3 upgrade inspected GitHub history (commits, pull requests, and releases) only. Local session logs were not checked.
