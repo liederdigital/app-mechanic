@@ -19,8 +19,8 @@ elsewhere ([`LICENSE`](LICENSE)).
 | Review | Human, Ron Stauffer (cross-machine testing on macOS across MacBook Air, MacBook Pro, and iMac; screenshot and Terminal verification); also reviewed by Claude Code (`#1`) |
 | Directed by | Ron Stauffer |
 | Human owner | Ron Stauffer (Lieder Digital, LLC), product direction, multi-Mac testing, Apple Developer ID signing/notarization & Gumroad configuration, release approval |
-| Era | 2026-07-27 to 2026-11-22 (UTC; converted from America/Denver on 2026-11-21) |
-| Status | active (`v0.6.8`) |
+| Era | 2026-07-27 to 2026-11-25 (UTC; converted from America/Denver on 2026-11-21) |
+| Status | active (`v0.6.9`) |
 
 ## How the work was done
 
@@ -32,6 +32,7 @@ Dates are UTC, converted from America/Denver on 2026-11-21 (see Evidence limits)
 
 | Date | Builder | Role | Surface | Model / mode | Contribution | Evidence |
 |---|---|---|---|---|---|---|
+| 2026-11-25 | Google Antigravity | built, deployed | desktop app | Gemini 4 Neon (Medium) (shown by the tool) | Release `v0.6.9`: triaged and closed GitHub Issues `#10`–`#12` (verified all four reported versions as genuine upstream updates); resolved GitHub Issue `#13` ("The application 'App Mechanic' is not open anymore." on relaunch) by adding a native macOS AppKit `NSApplication` runloop + `applicationShouldHandleReopen:hasVisibleWindows:` handler and Menu Bar `NSStatusItem` (`Open Dashboard` / `Quit App Mechanic`) via `pyobjc-framework-Cocoa`, plus browser heartbeat (`/api/heartbeat`, `/api/tab_closed`) auto-shutdown watchdog in [`app_mechanic.py`](app_mechanic.py) and [`setup.py`](setup.py), bumped version metadata to `0.6.9`, and packaged/notarized `AppMechanic-v0.6.9-Signed.zip` | `v0.6.9`, [`app_mechanic.py`](app_mechanic.py), [`setup.py`](setup.py), [`build.sh`](build.sh), [`README.md`](README.md), [`NOTES.md`](NOTES.md), `#10`, `#11`, `#12`, `#13` |
 | 2026-11-22 | Code Monkey (Grok Bot) | built | Grok Bot desktop app, hosted agent | Unknown | Upgraded COLOPHON.md to [COLOPHON.md](https://colophon.md) v1.3 and replaced the older Colophon snippet in the existing AGENTS.md. Review of this change is pending Ron. Local session logs were not checked. | this pull request |
 | 2026-11-21 | Grok Bot | documented | Hosted agent running `git` and `gh` on the owner's MacBook Pro | Unknown | Upgraded this colophon to COLOPHON.md v1.2.4: `Convention` row, dates converted to UTC, live timeline; checked GitHub for unrecorded history (none found); confirmed `AGENTS.md` already has the current Colophon snippet | `git log -- COLOPHON.md` |
 | 2026-11-15 | Google Antigravity | built, deployed | desktop app | Gemini 4 Argon (High) (shown by the tool) | Rendered Retina `v0.6.8` MacBook Pro cover mockups, square Telemetry Tachometer thumbnails, and dashboard screenshots in [`screenshots, etc./gumroad-v0.6.8/`](screenshots,%20etc./gumroad-v0.6.8/), synced [`liederdigital/appmechanic.dev`](https://github.com/liederdigital/appmechanic.dev) and Gumroad product listing to `v0.6.8`, and merged forensic colophon review PR `#1` | `68117cc`, `#1`, [`screenshots, etc./gumroad-v0.6.8/`](screenshots,%20etc./gumroad-v0.6.8/), `v0.6.8` |

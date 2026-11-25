@@ -5,14 +5,15 @@ DATA_FILES = []
 OPTIONS = {
     'argv_emulation': False,
     'iconfile': 'AppMechanic.icns',
+    'includes': ['objc', 'Foundation', 'AppKit', 'PyObjCTools.AppHelper'],
     'plist': {
         'CFBundleName': 'App Mechanic',
         'CFBundleDisplayName': 'App Mechanic',
         "CFBundleIdentifier": "com.liederdigital.appmechanic",
-        "CFBundleVersion": "0.6.8",
-        "CFBundleShortVersionString": "0.6.8",
+        "CFBundleVersion": "0.6.9",
+        "CFBundleShortVersionString": "0.6.9",
         "NSHumanReadableCopyright": "© 2026 Lieder Digital, LLC. All rights reserved.",
-        'CFBundleGetInfoString': "App Mechanic 0.6.8 - macOS App Updater and Scanner",
+        'CFBundleGetInfoString': "App Mechanic 0.6.9 - macOS App Updater and Scanner",
         'LSUIElement': True, # Runs in the background (no Dock icon), relying on the web browser for UI
     }
 }

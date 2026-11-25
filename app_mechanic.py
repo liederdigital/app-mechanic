@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import socketserver
 import threading
 import ssl
+import time
 
 # Ensure Homebrew, ~/.local/bin, and keg-only / version-managed Node bins are in the PATH for bundled apps
 import glob as _glob
@@ -81,7 +82,7 @@ is_scanning = False
 scan_lock = threading.Lock()
 
 HISTORY_DIR = os.path.expanduser("~/Library/Application Support/AppMechanic")
-APP_VERSION = "0.6.8"
+APP_VERSION = "0.6.9"
 HISTORY_FILE = os.path.join(HISTORY_DIR, "history.json")
 LICENSE_FILE = os.path.join(HISTORY_DIR, "license.json")
 
@@ -3434,6 +3435,22 @@ def get_html_content():
             }
         }
 
+        // Keep the background server alive while this tab is open, and let it shut down
+        // cleanly if all browser tabs are closed (with a grace period for page refreshes).
+        function sendHeartbeat() {
+            fetch('/api/heartbeat', { method: 'GET', cache: 'no-store' }).catch(() => {});
+        }
+        sendHeartbeat();
+        setInterval(sendHeartbeat, 10000);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) sendHeartbeat();
+        });
+        window.addEventListener('pagehide', () => {
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/tab_closed');
+            }
+        });
+
         // Initial load of cached data (polls while initial background startup scan is running)
         function loadInitialData() {
             fetch('/api/data')
@@ -3537,8 +3554,33 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def do_POST(self):
+        if self.path == '/api/tab_closed':
+            mark_tab_closed()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
+        elif self.path == '/api/heartbeat':
+            mark_client_activity()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_GET(self):
         global cached_scan_data, last_scan_time, is_scanning
+        if self.path != '/api/quit':
+            mark_client_activity()
+        if self.path == '/api/heartbeat':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
+            return
         if self.path == '/':
             self.send_response(200)
             self.send_header('Content-type', 'text/html; charset=utf-8')
@@ -3577,7 +3619,7 @@ class DashboardHTTPRequestHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({"status": "shutting down"}).encode('utf-8'))
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            request_shutdown("user clicked Quit")
         elif self.path.startswith('/api/launch'):
             if not is_pro_unlocked():
                 self.send_response(403)
@@ -3942,26 +3984,217 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+# Lifecycle & Heartbeat state
+client_ever_connected = False
+last_client_activity = 0.0
+tab_closed_at = None
+_active_httpd = None
+_shutdown_requested = threading.Event()
+_lifecycle_lock = threading.Lock()
+_app_port = 8000
+
+HEARTBEAT_IDLE_TIMEOUT = 90.0   # Auto-exit if no heartbeat for 90s (tolerates background tab throttling)
+TAB_CLOSED_GRACE = 15.0         # Auto-exit 15s after tab close unless refreshed / reopened / another tab pings
+
+def mark_client_activity():
+    global client_ever_connected, last_client_activity, tab_closed_at
+    with _lifecycle_lock:
+        client_ever_connected = True
+        last_client_activity = time.monotonic()
+        tab_closed_at = None
+
+def mark_tab_closed():
+    global tab_closed_at
+    with _lifecycle_lock:
+        tab_closed_at = time.monotonic()
+
+def open_dashboard(port=None):
+    target_port = port or _app_port
+    mark_client_activity()
+    subprocess.Popen(['open', f'http://localhost:{target_port}'])
+
+def request_shutdown(reason=""):
+    if _shutdown_requested.is_set():
+        return
+    _shutdown_requested.set()
+    if reason:
+        print(f"Shutting down App Mechanic ({reason})...")
+
+    def _stop():
+        time.sleep(0.15)
+        if _active_httpd is not None:
+            try:
+                _active_httpd.shutdown()
+            except Exception:
+                pass
+        try:
+            from AppKit import NSApplication
+            from PyObjCTools import AppHelper
+            app = NSApplication.sharedApplication()
+            if app is not None:
+                AppHelper.callAfter(app.terminate_, None)
+        except Exception:
+            pass
+
+    threading.Thread(target=_stop, daemon=True).start()
+
+def _heartbeat_watchdog():
+    """Shut down the background server automatically when no browser tab remains open."""
+    while not _shutdown_requested.is_set():
+        _shutdown_requested.wait(2.0)
+        if _shutdown_requested.is_set():
+            break
+        if is_scanning:
+            continue
+        now = time.monotonic()
+        with _lifecycle_lock:
+            connected = client_ever_connected
+            last_act = last_client_activity
+            closed_at = tab_closed_at
+        if closed_at is not None and (now - closed_at) >= TAB_CLOSED_GRACE:
+            request_shutdown("browser tab closed")
+            break
+        if connected and (now - last_act) >= HEARTBEAT_IDLE_TIMEOUT:
+            request_shutdown("no active browser heartbeat")
+            break
+
+def _run_cocoa_app(port=8000):
+    """Run a lightweight macOS NSApplication loop so LaunchServices relaunches reopen the dashboard
+    instead of showing 'The application App Mechanic is not open anymore', and provide a menu bar icon."""
+    import objc
+    from Foundation import NSObject
+    from AppKit import (
+        NSApplication,
+        NSApplicationActivationPolicyAccessory,
+        NSImage,
+        NSMenu,
+        NSMenuItem,
+        NSStatusBar,
+        NSTerminateNow,
+        NSVariableStatusItemLength,
+    )
+
+    class AppMechanicAppDelegate(NSObject):
+        def applicationDidFinishLaunching_(self, notification):
+            self.status_item = NSStatusBar.systemStatusBar().statusItemWithLength_(NSVariableStatusItemLength)
+            button = self.status_item.button()
+            if button is not None:
+                img = NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+                    "wrench.and.screwdriver", "App Mechanic"
+                )
+                if img is not None:
+                    img.setTemplate_(True)
+                    button.setImage_(img)
+                else:
+                    button.setTitle_("🔧")
+                button.setToolTip_(f"App Mechanic v{APP_VERSION}")
+
+            menu = NSMenu.alloc().init()
+            title_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                f"App Mechanic v{APP_VERSION}", None, ""
+            )
+            title_item.setEnabled_(False)
+            menu.addItem_(title_item)
+            menu.addItem_(NSMenuItem.separatorItem())
+
+            open_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                "Open Dashboard", "openDashboard:", ""
+            )
+            open_item.setTarget_(self)
+            menu.addItem_(open_item)
+
+            quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                "Quit App Mechanic", "quitApp:", "q"
+            )
+            quit_item.setTarget_(self)
+            menu.addItem_(quit_item)
+
+            self.status_item.setMenu_(menu)
+
+        def applicationShouldHandleReopen_hasVisibleWindows_(self, sender, flag):
+            # Re-clicking App Mechanic.app in Finder/Spotlight/Applications while running
+            # reopens the browser dashboard cleanly instead of triggering a LaunchServices error.
+            open_dashboard(port)
+            return False
+
+        @objc.IBAction
+        def openDashboard_(self, sender):
+            open_dashboard(port)
+
+        @objc.IBAction
+        def quitApp_(self, sender):
+            request_shutdown("user clicked Menu Bar Quit")
+
+        def applicationShouldTerminate_(self, sender):
+            _shutdown_requested.set()
+            if _active_httpd is not None:
+                try:
+                    threading.Thread(target=_active_httpd.shutdown, daemon=True).start()
+                except Exception:
+                    pass
+            return NSTerminateNow
+
+    app = NSApplication.sharedApplication()
+    app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    delegate = AppMechanicAppDelegate.alloc().init()
+    app.setDelegate_(delegate)
+    app.run()
+
 def start_server(port=8000):
+    global _active_httpd, _app_port
+    _app_port = port
     handler = DashboardHTTPRequestHandler
-    
+
     try:
-        with ThreadedTCPServer(("127.0.0.1", port), handler) as httpd:
-            print(f"==========================================")
-            print(f"  Dashboard Server Running on port {port}")
-            print(f"  Access UI at http://localhost:{port}")
-            print(f"  Press Ctrl+C in this Terminal to exit.")
-            print(f"==========================================")
-            
-            import subprocess
-            subprocess.call(['open', f'http://localhost:{port}'])
-            httpd.serve_forever()
+        httpd = ThreadedTCPServer(("127.0.0.1", port), handler)
     except OSError as e:
         if e.errno == 48:
-            print(f"Port {port} is already in use. Exiting.")
+            print(f"Port {port} is already in use. Opening existing instance...")
+            open_dashboard(port)
             sys.exit(0)
         else:
             raise e
+
+    _active_httpd = httpd
+    print(f"==========================================")
+    print(f"  Dashboard Server Running on port {port}")
+    print(f"  Access UI at http://localhost:{port}")
+    print(f"  Press Ctrl+C in this Terminal to exit.")
+    print(f"==========================================")
+
+    threading.Thread(target=_heartbeat_watchdog, daemon=True).start()
+    open_dashboard(port)
+
+    use_cocoa = False
+    if sys.platform == "darwin":
+        try:
+            import AppKit  # noqa: F401
+            use_cocoa = True
+        except ImportError:
+            use_cocoa = False
+
+    if use_cocoa:
+        server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            _run_cocoa_app(port=port)
+        except KeyboardInterrupt:
+            request_shutdown("KeyboardInterrupt")
+        finally:
+            try:
+                httpd.server_close()
+            except Exception:
+                pass
+    else:
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            request_shutdown("KeyboardInterrupt")
+        finally:
+            try:
+                httpd.server_close()
+            except Exception:
+                pass
 
 def check_single_instance(port=8000):
     """If another instance is already running on the port, open the browser to it and exit."""
@@ -3969,8 +4202,6 @@ def check_single_instance(port=8000):
         # connect_ex returns 0 if connection succeeds (meaning port is actively in use by our app)
         if s.connect_ex(('localhost', port)) == 0:
             print(f"App Mechanic is already running on port {port}. Opening existing instance...")
-            import subprocess
-            import time
             subprocess.call(['open', f'http://localhost:{port}'])
             # Delay exit slightly so macOS Finder doesn't show "not open anymore" error
             time.sleep(1.5)
